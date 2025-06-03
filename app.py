@@ -12,12 +12,12 @@ import concurrent.futures
 
 st.set_page_config(page_title="Land Run Auswertung", layout="centered")
 st.title("🏁 Land Run Auswertung")
-st.markdown("Berechne die optimale Höhenstrategie zur Maximierung der Dreiecksfläche.")
 
-# 🧭 UTM Startpunkt Eingabe
-st.subheader("🧭 Startpunkt (UTM)")
+# ------------------ UTM-EINGABE ------------------
+st.subheader("🧭 Startpunkt (UTM-Eingabe)")
 utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
 coord_format = st.radio("Koordinatenformat", ["5/4", "4/4"], index=0)
+
 col1, col2 = st.columns(2)
 with col1:
     short_x_input = st.number_input("UTM-Ostwert", value=46542, step=1)
@@ -26,6 +26,7 @@ with col2:
 
 zone_number = int(utm_zone[:-1])
 epsg_code = 32600 + zone_number
+
 if coord_format == "5/4":
     utm_x = short_x_input * 10
     utm_y = 5300000 + short_y_input * 10
@@ -36,7 +37,7 @@ else:
 transformer = Transformer.from_crs(f"epsg:{epsg_code}", "epsg:4326", always_xy=True)
 lon, lat = transformer.transform(utm_x, utm_y)
 
-# Beispielhafte Verschiebung
+# Beispielhafte Flugverschiebung
 dx1, dy1 = 1500, 2000
 dx2, dy2 = 3000, 1000
 x1, y1 = utm_x + dx1, utm_y + dy1
@@ -57,6 +58,8 @@ st.write("P1:", format_utm_output(utm_x, utm_y, coord_format))
 st.write("P2:", format_utm_output(x1, y1, coord_format))
 st.write("P3:", format_utm_output(x2, y2, coord_format))
 
+# ------------------ KARTE ------------------
+st.subheader("🗺️ Flugroute auf Karte")
 m = folium.Map(location=[lat, lon], zoom_start=13)
 Marker([lat, lon], tooltip="P1").add_to(m)
 Marker([lat1, lon1], tooltip="P2").add_to(m)
@@ -64,12 +67,13 @@ Marker([lat2, lon2], tooltip="P3").add_to(m)
 PolyLine([(lat, lon), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
 st.components.v1.html(m._repr_html_(), height=500)
 
-# 🟦 Winddaten-Eingabe
-mode = st.radio("🌀 Wie möchtest du Winddaten eingeben?", ["Datei hochladen", "Manuell eingeben"])
+# ------------------ WINDDATEN ------------------
+st.header("🌬️ Winddaten eingeben")
+mode = st.radio("Eingabeart:", ["Datei hochladen", "Manuell eingeben"])
 df = None
 
 if mode == "Datei hochladen":
-    uploaded_file = st.file_uploader("📤 Winddaten (.csv, .txt)", type=["csv", "txt"])
+    uploaded_file = st.file_uploader("Winddaten (.csv oder .txt)", type=["csv", "txt"])
     if uploaded_file:
         try:
             if uploaded_file.name.endswith(".txt"):
@@ -99,7 +103,7 @@ elif mode == "Manuell eingeben":
             st.warning("⚠️ Keine gültigen Winddaten eingegeben.")
             df = None
     except Exception as e:
-        st.error(f"❌ Fehlerhafte Eingaben erkannt: {e}")
+        st.error(f"Fehlerhafte Eingaben: {e}")
         df = None
 
 col1, col2 = st.columns(2)
@@ -108,11 +112,10 @@ with col1:
 with col2:
     climb_rate = st.number_input("Steig-/Sinkrate [m/s]", min_value=0.1, max_value=10.0, value=4.0, step=0.1)
 
+# ------------------ BERECHNUNG ------------------
 def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
     altitudes = df['Altitude_ft'].unique()
     altitudes.sort()
-    results = []
-
     interp_dirs = {alt: np.interp(alt, df['Altitude_ft'], df['Direction_deg']) for alt in altitudes}
     interp_speeds = {alt: np.interp(alt, df['Altitude_ft'], df['Speed_kmh']) for alt in altitudes}
     wind_vectors = {}
@@ -175,6 +178,7 @@ def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
 def simulate_landrun(df, duration_sec, climb_rate):
     return simulate_landrun_fast_unique(df, duration_sec, climb_rate)
 
+# ------------------ AUSGABE ------------------
 if df is not None and not df.empty:
     st.success("✅ Winddaten bereit.")
     results = simulate_landrun(df, flight_time_min * 60, climb_rate)
