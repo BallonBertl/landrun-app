@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-import matplotlib.pyplot as plt
-from itertools import combinations
-import re
 import folium
 from folium import Marker, PolyLine
 from pyproj import Transformer
+import re
+from itertools import combinations
 import concurrent.futures
 
 st.set_page_config(page_title="Land Run Auswertung", layout="centered")
@@ -58,7 +57,7 @@ with col1:
 with col2:
     climb_rate = st.number_input("Steig-/Sinkrate [m/s]", min_value=0.1, max_value=10.0, value=4.0, step=0.1)
 
-# ------------------ BERECHNUNG ------------------
+# ------------------ 2. BERECHNUNG & TOP 10 ------------------
 def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
     altitudes = df['Altitude_ft'].unique()
     altitudes.sort()
@@ -96,12 +95,9 @@ def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
                 continue
             seen_combinations.add(key)
             combo_results.append({
-                'h1': h1,
-                'h2': h2,
-                'dir1': round(interp_dirs[h1], 1),
-                'dir2': round(interp_dirs[h2], 1),
-                'Speed_h1': round(interp_speeds[h1], 2),
-                'Speed_h2': round(interp_speeds[h2], 2),
+                'h1': h1, 'h2': h2,
+                'dir1': round(interp_dirs[h1], 1), 'dir2': round(interp_dirs[h2], 1),
+                'Speed_h1': round(interp_speeds[h1], 2), 'Speed_h2': round(interp_speeds[h2], 2),
                 'T1': f"{int(t1//60)}:{int(t1%60):02d}",
                 'T2': f"{int(t2//60)}:{int(t2%60):02d}",
                 'Climb': f"{int(climb_time//60)}:{int(climb_time%60):02d}",
@@ -121,26 +117,17 @@ def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
     progress.empty()
     return sorted(all_results, key=lambda x: -x['Area_km2'])[:10]
 
-def simulate_landrun(df, duration_sec, climb_rate):
-    return simulate_landrun_fast_unique(df, duration_sec, climb_rate)
-
-# ------------------ 2. AUSGABE TOP 10 ------------------
 if df is not None and not df.empty:
-    results = simulate_landrun(df, flight_time_min * 60, climb_rate)
+    results = simulate_landrun_fast_unique(df, flight_time_min * 60, climb_rate)
     if results:
         st.subheader("🏆 Top 10 Höhenkombinationen")
         def format_row(r):
             return {
-                'Höhe 1': f"{int(r['h1'])} ft",
-                'Zeit 1': r['T1'],
-                'Richtung 1': f"{r['dir1']}°",
-                'Speed 1': f"{r['Speed_h1']:.2f}",
-                'Höhe 2': f"{int(r['h2'])} ft",
-                'Zeit 2': r['T2'],
-                'Richtung 2': f"{r['dir2']}°",
-                'Speed 2': f"{r['Speed_h2']:.2f}",
-                'Climb': r['Climb'],
-                'Fläche [km²]': f"{r['Area_km2']:.2f}"
+                'Höhe 1': f"{int(r['h1'])} ft", 'Zeit 1': r['T1'],
+                'Richtung 1': f"{r['dir1']}°", 'Speed 1': f"{r['Speed_h1']:.2f}",
+                'Höhe 2': f"{int(r['h2'])} ft", 'Zeit 2': r['T2'],
+                'Richtung 2': f"{r['dir2']}°", 'Speed 2': f"{r['Speed_h2']:.2f}",
+                'Climb': r['Climb'], 'Fläche [km²]': f"{r['Area_km2']:.2f}"
             }
         table = pd.DataFrame([format_row(r) for r in results])
         styled = table.style.set_table_attributes('style="font-size: 13px; width: 100%;"') \
@@ -148,38 +135,31 @@ if df is not None and not df.empty:
             .hide(axis="index")
         st.markdown(styled.to_html(), unsafe_allow_html=True)
 
-        # ------------------ 3. STARTPUNKT ------------------
+        # ------------------ 3. STARTPUNKT & KARTE ------------------
         st.subheader("🧭 Startpunkt (UTM)")
         utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
         coord_format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
-        col1, col2 = st.columns(2)
-        with col1:
-            short_x_input = st.number_input("UTM-Ostwert", value=6542, step=1)
-        with col2:
-            short_y_input = st.number_input("UTM-Nordwert", value=3117, step=1)
+        short_x = st.number_input("UTM-Ostwert", value=7601, step=1)
+        short_y = st.number_input("UTM-Nordwert", value=2467, step=1)
 
         zone_number = int(utm_zone[:-1])
-        epsg_code = 32600 + zone_number
+        epsg = 32600 + zone_number
         if coord_format == "5/4":
-            utm_x = short_x_input * 10
-            utm_y = 5300000 + short_y_input * 10
+            utm_x = short_x * 10
+            utm_y = 5200000 + short_y * 10
         else:
-            utm_x = 400000 + short_x_input * 10
-            utm_y = 5300000 + short_y_input * 10
+            utm_x = 400000 + short_x * 10
+            utm_y = 5200000 + short_y * 10
 
-        transformer = Transformer.from_crs(f"epsg:{epsg_code}", "epsg:4326", always_xy=True)
+        transformer = Transformer.from_crs(f"epsg:{epsg}", "epsg:4326", always_xy=True)
         lon0, lat0 = transformer.transform(utm_x, utm_y)
-
         best = results[0]
-        def add_offset(p):
-            return utm_x + p[0], utm_y + p[1]
-
+        def add_offset(p): return utm_x + p[0], utm_y + p[1]
         x1, y1 = add_offset(best['p1'])
         x2, y2 = add_offset(best['p2'])
         lon1, lat1 = transformer.transform(x1, y1)
         lon2, lat2 = transformer.transform(x2, y2)
 
-        # ------------------ 4. KARTE ------------------
         st.subheader("🗺️ Flugroute auf Karte")
         m = folium.Map(location=[lat0, lon0], zoom_start=13)
         Marker([lat0, lon0], tooltip="P1").add_to(m)
@@ -188,16 +168,8 @@ if df is not None and not df.empty:
         PolyLine([(lat0, lon0), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
         st.components.v1.html(m._repr_html_(), height=500)
 
-        # ------------------ 5. UTM-AUSGABE ------------------
         st.subheader("📌 UTM-Ausgabe der Flugpunkte")
-        def format_utm_output(x, y, fmt):
-            if fmt == "5/4":
-                return f"{int(x/10)%100000:05d} / {int(y/10)%10000:04d}"
-            elif fmt == "4/4":
-                return f"{int(x/10)%10000:04d} / {int(y/10)%10000:04d}"
-            else:
-                return f"{int(x)} / {int(y)}"
-
-        st.write("P1:", format_utm_output(utm_x, utm_y, coord_format))
-        st.write("P2:", format_utm_output(x1, y1, coord_format))
-        st.write("P3:", format_utm_output(x2, y2, coord_format))
+        def fmt(x, y, f): return f"{int(x/10)%10000:04d} / {int(y/10)%10000:04d}" if f=="4/4" else f"{int(x/10)%100000:05d} / {int(y/10)%10000:04d}"
+        st.write("P1:", fmt(utm_x, utm_y, coord_format))
+        st.write("P2:", fmt(x1, y1, coord_format))
+        st.write("P3:", fmt(x2, y2, coord_format))
