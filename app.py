@@ -5,12 +5,66 @@ import math
 import matplotlib.pyplot as plt
 from itertools import combinations
 import re
+import folium
+from folium import Marker, PolyLine
+from pyproj import Transformer
 import concurrent.futures
 
 st.set_page_config(page_title="Land Run Auswertung", layout="centered")
 st.title("🏁 Land Run Auswertung")
 st.markdown("Berechne die optimale Höhenstrategie zur Maximierung der Dreiecksfläche.")
 
+# 🧭 UTM Startpunkt Eingabe
+st.subheader("🧭 Startpunkt (UTM)")
+utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
+coord_format = st.radio("Koordinatenformat", ["5/4", "4/4"], index=0)
+col1, col2 = st.columns(2)
+with col1:
+    short_x_input = st.number_input("UTM-Ostwert", value=46542, step=1)
+with col2:
+    short_y_input = st.number_input("UTM-Nordwert", value=3117, step=1)
+
+zone_number = int(utm_zone[:-1])
+epsg_code = 32600 + zone_number
+if coord_format == "5/4":
+    utm_x = short_x_input * 10
+    utm_y = 5300000 + short_y_input * 10
+else:
+    utm_x = 400000 + short_x_input * 10
+    utm_y = 5300000 + short_y_input * 10
+
+transformer = Transformer.from_crs(f"epsg:{epsg_code}", "epsg:4326", always_xy=True)
+lon, lat = transformer.transform(utm_x, utm_y)
+
+# Beispielhafte Verschiebung
+dx1, dy1 = 1500, 2000
+dx2, dy2 = 3000, 1000
+x1, y1 = utm_x + dx1, utm_y + dy1
+x2, y2 = x1 + dx2, y1 + dy2
+lon1, lat1 = transformer.transform(x1, y1)
+lon2, lat2 = transformer.transform(x2, y2)
+
+def format_utm_output(x, y, fmt):
+    if fmt == "5/4":
+        return f"{int(x/10)%100000:05d} / {int(y/10)%10000:04d}"
+    elif fmt == "4/4":
+        return f"{int(x/10)%10000:04d} / {int(y/10)%10000:04d}"
+    else:
+        return f"{int(x)} / {int(y)}"
+
+st.markdown("### 📌 UTM-Ausgabe:")
+st.write("P1:", format_utm_output(utm_x, utm_y, coord_format))
+st.write("P2:", format_utm_output(x1, y1, coord_format))
+st.write("P3:", format_utm_output(x2, y2, coord_format))
+
+m = folium.Map(location=[lat, lon], zoom_start=13)
+Marker([lat, lon], tooltip="P1").add_to(m)
+Marker([lat1, lon1], tooltip="P2").add_to(m)
+Marker([lat2, lon2], tooltip="P3").add_to(m)
+PolyLine([(lat, lon), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
+st.components.v1.html(m._repr_html_(), height=500)
+
+# 🟦 Winddaten-Eingabe
 mode = st.radio("🌀 Wie möchtest du Winddaten eingeben?", ["Datei hochladen", "Manuell eingeben"])
 df = None
 
