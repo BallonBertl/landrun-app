@@ -120,21 +120,22 @@ if df is not None and not df.empty:
     results = simulate_landrun_fast_unique(df, flight_time_min * 60, climb_rate)
     if results:
         st.subheader("🏆 Top 10 Höhenkombinationen")
-        def format_row(r):
+        def format_row(i, r):
             return {
+                'Nr.': i + 1,
                 'Höhe 1': f"{int(r['h1'])} ft", 'Zeit 1': r['T1'],
                 'Richtung 1': f"{r['dir1']}°", 'Speed 1': f"{r['Speed_h1']:.2f}",
                 'Höhe 2': f"{int(r['h2'])} ft", 'Zeit 2': r['T2'],
                 'Richtung 2': f"{r['dir2']}°", 'Speed 2': f"{r['Speed_h2']:.2f}",
                 'Climb': r['Climb'], 'Fläche [km²]': f"{r['Area_km2']:.2f}"
             }
-        df_top10 = pd.DataFrame([format_row(r) for r in results])
+        df_top10 = pd.DataFrame([format_row(i, r) for i, r in enumerate(results)])
         styled = df_top10.style.set_table_attributes('style="font-size: 13px; width: 100%;"') \
             .apply(lambda x: ['background-color: #f2f2f2' if x.name % 2 else '' for _ in x], axis=1) \
             .hide(axis="index")
         st.markdown(styled.to_html(), unsafe_allow_html=True)
 
-        # ------------------ 3. STARTPUNKT ------------------
+        # ------------------ 3. STARTPUNKT & KARTE ------------------
         st.subheader("🧭 Startpunkt (UTM)")
         utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
         coord_format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
@@ -152,27 +153,22 @@ if df is not None and not df.empty:
 
         transformer = Transformer.from_crs(f"epsg:{epsg}", "epsg:4326", always_xy=True)
         lon0, lat0 = transformer.transform(utm_x, utm_y)
-
         st.write("UTM X / Y:", utm_x, utm_y)
         st.write("WGS84 Lat / Lon:", lat0, lon0)
 
-        best = results[0]
+        st.subheader("🗺️ Flugroute auf Karte")
+        selected_idx = st.selectbox("Variante wählen:", options=list(range(1, 11)), format_func=lambda i: f"Variante {i}")
+        selected = results[selected_idx - 1]
+
         def add_offset(p): return utm_x + p[0], utm_y + p[1]
-        x1, y1 = add_offset(best['p1'])
-        x2, y2 = add_offset(best['p2'])
+        x1, y1 = add_offset(selected['p1'])
+        x2, y2 = add_offset(selected['p2'])
         lon1, lat1 = transformer.transform(x1, y1)
         lon2, lat2 = transformer.transform(x2, y2)
 
-        st.subheader("🗺️ Flugroute auf Karte")
         m = folium.Map(location=[lat0, lon0], zoom_start=13)
         Marker([lat0, lon0], tooltip="P1").add_to(m)
         Marker([lat1, lon1], tooltip="P2").add_to(m)
         Marker([lat2, lon2], tooltip="P3").add_to(m)
         PolyLine([(lat0, lon0), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
         st.components.v1.html(m._repr_html_(), height=500)
-
-        st.subheader("📌 UTM-Ausgabe der Flugpunkte")
-        def fmt(x, y, f): return f"{int(x/10)%10000:04d} / {int(y/10)%10000:04d}" if f=="4/4" else f"{int(x/10)%100000:05d} / {int(y/10)%10000:04d}"
-        st.write("P1:", fmt(utm_x, utm_y, coord_format))
-        st.write("P2:", fmt(x1, y1, coord_format))
-        st.write("P3:", fmt(x2, y2, coord_format))
