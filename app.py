@@ -20,7 +20,7 @@ if mode == "Datei hochladen":
         try:
             if uploaded_file.name.endswith(".txt"):
                 txt_content = uploaded_file.read().decode("utf-8", errors="ignore")
-                lines = txt_content.strip().splitlines()[1:]  # erste Zeile überspringen
+                lines = txt_content.strip().splitlines()[1:]
                 data = []
                 for line in lines:
                     parts = re.split(r"[\t\s]+", line.strip())
@@ -54,7 +54,7 @@ with col1:
 with col2:
     climb_rate = st.number_input("Steig-/Sinkrate [m/s]", min_value=0.1, max_value=10.0, value=4.0, step=0.1)
 
-def simulate_landrun_fast_parallel(df, duration_sec, climb_rate):
+def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
     altitudes = df['Altitude_ft'].unique()
     altitudes.sort()
     results = []
@@ -72,6 +72,7 @@ def simulate_landrun_fast_parallel(df, duration_sec, climb_rate):
     combos = [(h1, h2) for h1, h2 in combinations(altitudes, 2)
               if (duration_sec - abs(h2 - h1) * 0.3048 / climb_rate) > 0]
 
+    seen_combinations = set()
     progress = st.progress(0)
     total = len(combos)
     completed = 0
@@ -86,7 +87,11 @@ def simulate_landrun_fast_parallel(df, duration_sec, climb_rate):
             p0 = np.array([0, 0])
             p1 = p0 + wind_vectors[h1] * t1
             p2 = p1 + wind_vectors[h2] * t2
-            area = 0.5 * abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])) / 1e6
+            area = round(0.5 * abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])) / 1e6, 3)
+            key = (min(h1, h2), max(h1, h2), area)
+            if key in seen_combinations:
+                continue
+            seen_combinations.add(key)
             combo_results.append({
                 'h1': h1,
                 'h2': h2,
@@ -114,7 +119,7 @@ def simulate_landrun_fast_parallel(df, duration_sec, climb_rate):
     return sorted(all_results, key=lambda x: -x['Area_km2'])[:10]
 
 def simulate_landrun(df, duration_sec, climb_rate):
-    return simulate_landrun_fast_parallel(df, duration_sec, climb_rate)
+    return simulate_landrun_fast_unique(df, duration_sec, climb_rate)
 
 if df is not None and not df.empty:
     st.success("✅ Winddaten bereit.")
