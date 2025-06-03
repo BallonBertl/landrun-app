@@ -113,7 +113,6 @@ def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
             all_results.extend(future.result())
             completed += 1
             progress.progress(min(1.0, completed / total))
-
     progress.empty()
     return sorted(all_results, key=lambda x: -x['Area_km2'])[:10]
 
@@ -129,10 +128,13 @@ if df is not None and not df.empty:
                 'Richtung 2': f"{r['dir2']}°", 'Speed 2': f"{r['Speed_h2']:.2f}",
                 'Climb': r['Climb'], 'Fläche [km²]': f"{r['Area_km2']:.2f}"
             }
-        table = pd.DataFrame([format_row(r) for r in results])
-        st.markdown(table.to_html(index=False), unsafe_allow_html=True)
+        df_top10 = pd.DataFrame([format_row(r) for r in results])
+        styled = df_top10.style.set_table_attributes('style="font-size: 13px; width: 100%;"') \
+            .apply(lambda x: ['background-color: #f2f2f2' if x.name % 2 else '' for _ in x], axis=1) \
+            .hide(axis="index")
+        st.markdown(styled.to_html(), unsafe_allow_html=True)
 
-        # ------------------ 3. STARTPUNKT & DEBUG ------------------
+        # ------------------ 3. STARTPUNKT ------------------
         st.subheader("🧭 Startpunkt (UTM)")
         utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
         coord_format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
@@ -151,8 +153,6 @@ if df is not None and not df.empty:
         transformer = Transformer.from_crs(f"epsg:{epsg}", "epsg:4326", always_xy=True)
         lon0, lat0 = transformer.transform(utm_x, utm_y)
 
-        # 🛠 DEBUG-AUSGABE
-        st.subheader("🛠 Debug Koordinatenkontrolle")
         st.write("UTM X / Y:", utm_x, utm_y)
         st.write("WGS84 Lat / Lon:", lat0, lon0)
 
