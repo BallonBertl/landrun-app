@@ -130,12 +130,9 @@ if df is not None and not df.empty:
                 'Climb': r['Climb'], 'Fläche [km²]': f"{r['Area_km2']:.2f}"
             }
         table = pd.DataFrame([format_row(r) for r in results])
-        styled = table.style.set_table_attributes('style="font-size: 13px; width: 100%;"') \
-            .apply(lambda x: ['background-color: #f2f2f2' if x.name % 2 == 1 else '' for _ in x], axis=1) \
-            .hide(axis="index")
-        st.markdown(styled.to_html(), unsafe_allow_html=True)
+        st.markdown(table.to_html(index=False), unsafe_allow_html=True)
 
-        # ------------------ 3. STARTPUNKT & KARTE ------------------
+        # ------------------ 3. STARTPUNKT & DEBUG ------------------
         st.subheader("🧭 Startpunkt (UTM)")
         utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
         coord_format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
@@ -153,6 +150,12 @@ if df is not None and not df.empty:
 
         transformer = Transformer.from_crs(f"epsg:{epsg}", "epsg:4326", always_xy=True)
         lon0, lat0 = transformer.transform(utm_x, utm_y)
+
+        # 🛠 DEBUG-AUSGABE
+        st.subheader("🛠 Debug Koordinatenkontrolle")
+        st.write("UTM X / Y:", utm_x, utm_y)
+        st.write("WGS84 Lat / Lon:", lat0, lon0)
+
         best = results[0]
         def add_offset(p): return utm_x + p[0], utm_y + p[1]
         x1, y1 = add_offset(best['p1'])
