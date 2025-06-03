@@ -5,6 +5,7 @@ import math
 import matplotlib.pyplot as plt
 from itertools import combinations
 import re
+import concurrent.futures
 
 st.set_page_config(page_title="Land Run Auswertung", layout="centered")
 st.title("🏁 Land Run Auswertung")
@@ -53,56 +54,67 @@ with col1:
 with col2:
     climb_rate = st.number_input("Steig-/Sinkrate [m/s]", min_value=0.1, max_value=10.0, value=4.0, step=0.1)
 
-def wind_vector(direction_deg, speed_kmh):
-    direction_rad = math.radians(direction_deg)
-    speed_ms = speed_kmh / 3.6
-    dx = speed_ms * math.sin(direction_rad)
-    dy = speed_ms * math.cos(direction_rad)
-    return np.array([dx, dy])
-
-def interpolate_wind_profile(df, alt_ft):
-    df = df.sort_values('Altitude_ft')
-    return np.interp(alt_ft, df['Altitude_ft'], df['Direction_deg']), \
-           np.interp(alt_ft, df['Altitude_ft'], df['Speed_kmh'])
-
-def simulate_landrun(df, duration_sec, climb_rate):
+def simulate_landrun_fast_parallel(df, duration_sec, climb_rate):
     altitudes = df['Altitude_ft'].unique()
     altitudes.sort()
     results = []
-    for h1, h2 in combinations(altitudes, 2):
+
+    interp_dirs = {alt: np.interp(alt, df['Altitude_ft'], df['Direction_deg']) for alt in altitudes}
+    interp_speeds = {alt: np.interp(alt, df['Altitude_ft'], df['Speed_kmh']) for alt in altitudes}
+    wind_vectors = {}
+    for alt in altitudes:
+        dir_rad = math.radians(interp_dirs[alt])
+        speed_ms = interp_speeds[alt] / 3.6
+        dx = speed_ms * math.sin(dir_rad)
+        dy = speed_ms * math.cos(dir_rad)
+        wind_vectors[alt] = np.array([dx, dy])
+
+    combos = [(h1, h2) for h1, h2 in combinations(altitudes, 2)
+              if (duration_sec - abs(h2 - h1) * 0.3048 / climb_rate) > 0]
+
+    progress = st.progress(0)
+    total = len(combos)
+    completed = 0
+
+    def process_combo(h1, h2):
+        combo_results = []
         climb_time = abs(h2 - h1) * 0.3048 / climb_rate
         cruise_time = duration_sec - climb_time
-        if cruise_time <= 0:
-            continue
         for frac in np.linspace(0.1, 0.9, 9):
             t1 = cruise_time * frac
             t2 = cruise_time * (1 - frac)
-            def integrate_motion(alt, time_sec, steps=20):
-                dt = time_sec / steps
-                total = np.zeros(2)
-                for i in range(steps):
-                    direction, speed = interpolate_wind_profile(df, alt)
-                    vec = wind_vector(direction, speed)
-                    total += vec * dt
-                return total
             p0 = np.array([0, 0])
-            p1 = p0 + integrate_motion(h1, t1)
-            p2 = p1 + integrate_motion(h2, t2)
+            p1 = p0 + wind_vectors[h1] * t1
+            p2 = p1 + wind_vectors[h2] * t2
             area = 0.5 * abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])) / 1e6
-            results.append({
+            combo_results.append({
                 'h1': h1,
                 'h2': h2,
-                'dir1': round(interpolate_wind_profile(df, h1)[0], 1),
-                'dir2': round(interpolate_wind_profile(df, h2)[0], 1),
-                'Speed_h1': round(interpolate_wind_profile(df, h1)[1], 2),
-                'Speed_h2': round(interpolate_wind_profile(df, h2)[1], 2),
+                'dir1': round(interp_dirs[h1], 1),
+                'dir2': round(interp_dirs[h2], 1),
+                'Speed_h1': round(interp_speeds[h1], 2),
+                'Speed_h2': round(interp_speeds[h2], 2),
                 'T1': f"{int(t1//60)}:{int(t1%60):02d}",
                 'T2': f"{int(t2//60)}:{int(t2%60):02d}",
                 'Climb': f"{int(climb_time//60)}:{int(climb_time%60):02d}",
                 'Area_km2': round(area, 2),
                 'p0': p0, 'p1': p1, 'p2': p2
             })
-    return sorted(results, key=lambda x: -x['Area_km2'])[:10]
+        return combo_results
+
+    all_results = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(process_combo, h1, h2): (h1, h2) for h1, h2 in combos}
+        for future in concurrent.futures.as_completed(futures):
+            all_results.extend(future.result())
+            completed += 1
+            progress.progress(min(1.0, completed / total))
+
+    progress.empty()
+    return sorted(all_results, key=lambda x: -x['Area_km2'])[:10]
+
+def simulate_landrun(df, duration_sec, climb_rate):
+    return simulate_landrun_fast_parallel(df, duration_sec, climb_rate)
 
 if df is not None and not df.empty:
     st.success("✅ Winddaten bereit.")
