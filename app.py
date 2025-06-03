@@ -148,7 +148,7 @@ if df is not None and not df.empty:
             utm_x = short_x * 10
             utm_y = 5200000 + short_y * 10
         else:
-            utm_x = 400000 + short_x * 10
+            utm_x = 500000 + short_x * 10
             utm_y = 5200000 + short_y * 10
 
         transformer = Transformer.from_crs(f"epsg:{epsg}", "epsg:4326", always_xy=True)
