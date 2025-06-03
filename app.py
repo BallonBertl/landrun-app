@@ -1,0 +1,1 @@
+[KÜRZUNG – vollständiger Code aus vorherigem Schritt]
