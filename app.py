@@ -13,61 +13,7 @@ import concurrent.futures
 st.set_page_config(page_title="Land Run Auswertung", layout="centered")
 st.title("🏁 Land Run Auswertung")
 
-# ------------------ UTM-EINGABE ------------------
-st.subheader("🧭 Startpunkt (UTM-Eingabe)")
-utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
-coord_format = st.radio("Koordinatenformat", ["5/4", "4/4"], index=0)
-
-col1, col2 = st.columns(2)
-with col1:
-    short_x_input = st.number_input("UTM-Ostwert", value=46542, step=1)
-with col2:
-    short_y_input = st.number_input("UTM-Nordwert", value=3117, step=1)
-
-zone_number = int(utm_zone[:-1])
-epsg_code = 32600 + zone_number
-
-if coord_format == "5/4":
-    utm_x = short_x_input * 10
-    utm_y = 5300000 + short_y_input * 10
-else:
-    utm_x = 400000 + short_x_input * 10
-    utm_y = 5300000 + short_y_input * 10
-
-transformer = Transformer.from_crs(f"epsg:{epsg_code}", "epsg:4326", always_xy=True)
-lon, lat = transformer.transform(utm_x, utm_y)
-
-# Beispielhafte Flugverschiebung
-dx1, dy1 = 1500, 2000
-dx2, dy2 = 3000, 1000
-x1, y1 = utm_x + dx1, utm_y + dy1
-x2, y2 = x1 + dx2, y1 + dy2
-lon1, lat1 = transformer.transform(x1, y1)
-lon2, lat2 = transformer.transform(x2, y2)
-
-def format_utm_output(x, y, fmt):
-    if fmt == "5/4":
-        return f"{int(x/10)%100000:05d} / {int(y/10)%10000:04d}"
-    elif fmt == "4/4":
-        return f"{int(x/10)%10000:04d} / {int(y/10)%10000:04d}"
-    else:
-        return f"{int(x)} / {int(y)}"
-
-st.markdown("### 📌 UTM-Ausgabe:")
-st.write("P1:", format_utm_output(utm_x, utm_y, coord_format))
-st.write("P2:", format_utm_output(x1, y1, coord_format))
-st.write("P3:", format_utm_output(x2, y2, coord_format))
-
-# ------------------ KARTE ------------------
-st.subheader("🗺️ Flugroute auf Karte")
-m = folium.Map(location=[lat, lon], zoom_start=13)
-Marker([lat, lon], tooltip="P1").add_to(m)
-Marker([lat1, lon1], tooltip="P2").add_to(m)
-Marker([lat2, lon2], tooltip="P3").add_to(m)
-PolyLine([(lat, lon), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
-st.components.v1.html(m._repr_html_(), height=500)
-
-# ------------------ WINDDATEN ------------------
+# ------------------ 1. WINDDATEN ------------------
 st.header("🌬️ Winddaten eingeben")
 mode = st.radio("Eingabeart:", ["Datei hochladen", "Manuell eingeben"])
 df = None
@@ -178,9 +124,8 @@ def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
 def simulate_landrun(df, duration_sec, climb_rate):
     return simulate_landrun_fast_unique(df, duration_sec, climb_rate)
 
-# ------------------ AUSGABE ------------------
+# ------------------ 2. AUSGABE TOP 10 ------------------
 if df is not None and not df.empty:
-    st.success("✅ Winddaten bereit.")
     results = simulate_landrun(df, flight_time_min * 60, climb_rate)
     if results:
         st.subheader("🏆 Top 10 Höhenkombinationen")
@@ -203,18 +148,56 @@ if df is not None and not df.empty:
             .hide(axis="index")
         st.markdown(styled.to_html(), unsafe_allow_html=True)
 
-        st.subheader("📍 Flugbahn der besten Variante")
+        # ------------------ 3. STARTPUNKT ------------------
+        st.subheader("🧭 Startpunkt (UTM)")
+        utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
+        coord_format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
+        col1, col2 = st.columns(2)
+        with col1:
+            short_x_input = st.number_input("UTM-Ostwert", value=6542, step=1)
+        with col2:
+            short_y_input = st.number_input("UTM-Nordwert", value=3117, step=1)
+
+        zone_number = int(utm_zone[:-1])
+        epsg_code = 32600 + zone_number
+        if coord_format == "5/4":
+            utm_x = short_x_input * 10
+            utm_y = 5300000 + short_y_input * 10
+        else:
+            utm_x = 400000 + short_x_input * 10
+            utm_y = 5300000 + short_y_input * 10
+
+        transformer = Transformer.from_crs(f"epsg:{epsg_code}", "epsg:4326", always_xy=True)
+        lon0, lat0 = transformer.transform(utm_x, utm_y)
+
         best = results[0]
-        x, y = zip(best['p0'], best['p1'], best['p2'])
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.plot(x, y, marker='o', linestyle='-', color='blue')
-        for i, (px, py) in enumerate(zip(x, y)):
-            ax.text(px, py, f"P{i+1}", fontsize=12, ha='left', va='bottom')
-        ax.arrow(x[0], y[0] + 400, 0, 100, head_width=50, head_length=50, fc='gray', ec='gray')
-        ax.text(x[0], y[0] + 520, "N", ha='center', fontsize=12)
-        ax.set_title("Flugbahn mit realistischen Übergängen")
-        ax.set_xlabel("Ostverschiebung [m]")
-        ax.set_ylabel("Nordverschiebung [m]")
-        ax.set_aspect('equal')
-        ax.grid(True)
-        st.pyplot(fig)
+        def add_offset(p):
+            return utm_x + p[0], utm_y + p[1]
+
+        x1, y1 = add_offset(best['p1'])
+        x2, y2 = add_offset(best['p2'])
+        lon1, lat1 = transformer.transform(x1, y1)
+        lon2, lat2 = transformer.transform(x2, y2)
+
+        # ------------------ 4. KARTE ------------------
+        st.subheader("🗺️ Flugroute auf Karte")
+        m = folium.Map(location=[lat0, lon0], zoom_start=13)
+        Marker([lat0, lon0], tooltip="P1").add_to(m)
+        Marker([lat1, lon1], tooltip="P2").add_to(m)
+        Marker([lat2, lon2], tooltip="P3").add_to(m)
+        PolyLine([(lat0, lon0), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
+        st.components.v1.html(m._repr_html_(), height=500)
+
+        # ------------------ 5. UTM-AUSGABE ------------------
+        st.subheader("📌 UTM-Ausgabe der Flugpunkte")
+        def format_utm_output(x, y, fmt):
+            if fmt == "5/4":
+                return f"{int(x/10)%100000:05d} / {int(y/10)%10000:04d}"
+            elif fmt == "4/4":
+                return f"{int(x/10)%10000:04d} / {int(y/10)%10000:04d}"
+            else:
+                return f"{int(x)} / {int(y)}"
+
+        st.write("P1:", format_utm_output(utm_x, utm_y, coord_format))
+        st.write("P2:", format_utm_output(x1, y1, coord_format))
+        st.write("P3:", format_utm_output(x2, y2, coord_format))
