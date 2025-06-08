@@ -1,15 +1,13 @@
-# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.3 (8. Juni 2025)
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.4 (8. Juni 2025)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import utm
 import io
+from math import sqrt
 
 st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 
-# -------------------------------
-# Session-State vorbereiten
-# -------------------------------
 if "wind_df" not in st.session_state:
     st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
 if "wind_ready" not in st.session_state:
@@ -17,15 +15,11 @@ if "wind_ready" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "START"
 
-# -------------------------------
-# STARTSEITE
-# -------------------------------
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version ILP 1.3 – 8. Juni 2025")
+    st.caption("🛠 DEBUG: Version ILP 1.4 – 8. Juni 2025")
 
     st.header("1) Windprofil eingeben")
-
     upload_col, manual_col = st.columns(2)
 
     with upload_col:
@@ -62,7 +56,6 @@ def startseite():
 
     st.divider()
     st.header("2) Tools und Aufgaben")
-
     st.subheader("Tools (immer verfügbar):")
     st.button("📍 Markerdrop (folgt)", disabled=True)
     st.button("⏬ Steigen/Sinken (folgt)", disabled=True)
@@ -75,18 +68,15 @@ def startseite():
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
-# -------------------------------
-# ILP SEITE
-# -------------------------------
 def ilp_seite():
     st.title("ILP – Individual Launch Point")
 
+    st.subheader("🎯 Zielkoordinate (UTM)")
     zone = st.selectbox("UTM-Zone", ["32T", "33T", "34T"], index=1)
     zone_number = int(zone[:-1])
     zone_letter = zone[-1]
 
     format = st.selectbox("Koordinatenformat", ["4/4", "5/4"])
-
     if format == "4/4":
         east_part = st.text_input("Ostwert (4 Stellen)", value="7601")
         north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
@@ -94,7 +84,7 @@ def ilp_seite():
             easting = 500000 + int(east_part) * 10
             northing = 5200000 + int(north_part) * 10
         except:
-            st.error("Ungültige Eingabe für Koordinaten.")
+            st.error("Ungültige Eingabe.")
             return
     else:
         east_part = st.text_input("Ostwert (5 Stellen)", value="57601")
@@ -103,12 +93,13 @@ def ilp_seite():
             easting = int(east_part) * 10
             northing = 5200000 + int(north_part) * 10
         except:
-            st.error("Ungültige Eingabe für Koordinaten.")
+            st.error("Ungültige Eingabe.")
             return
 
     lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
-    st.caption(f"WGS84 (nur intern): {lat:.6f}, {lon:.6f}")
+    st.caption(f"WGS84 Zielkoordinate: {lat:.6f}, {lon:.6f}")
 
+    st.subheader("🧭 Einstellungen für ILP-Bereich")
     range_km = st.slider("Gewünschte Startdistanz (km)", 0, 15, (2, 10))
     height_min, height_max = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
     rate_limit = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.0, 8.0, 2.0, step=0.5)
@@ -140,22 +131,26 @@ def ilp_seite():
     if ilp_candidates:
         avg_e = np.mean([p["easting"] for p in ilp_candidates])
         avg_n = np.mean([p["northing"] for p in ilp_candidates])
+        max_dist = max([sqrt((p["easting"] - avg_e)**2 + (p["northing"] - avg_n)**2) for p in ilp_candidates])
+        radius_km = max_dist / 1000
         ilp_lat, ilp_lon = utm.to_latlon(avg_e, avg_n, zone_number, zone_letter)
 
-        st.subheader("Berechneter ILP-Bereich")
-        st.write(f"Mittlerer ILP: {avg_e:.1f} E / {avg_n:.1f} N (Zone {zone})")
-        st.map(pd.DataFrame([{"lat": ilp_lat, "lon": ilp_lon}]))
+        st.subheader("📌 Ergebnis")
+        st.success(f"Vorgeschlagener Mittelpunkt des ILP: {avg_e:.1f} E / {avg_n:.1f} N (Zone {zone})")
+        st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f} – Radius ≈ {radius_km:.2f} km")
 
-        st.success("ILP-Bereich erfolgreich berechnet.")
+        st.map(pd.DataFrame([
+            {"lat": lat, "lon": lon},  # Zielpunkt
+            {"lat": ilp_lat, "lon": ilp_lon}  # ILP-Mitte
+        ]))
+        st.info("Kreisfläche mit angezeigtem Radius entspricht dem berechneten Startbereich.")
+
     else:
-        st.warning("Keine gültige Höhe im Windprofil ausgewählt.")
+        st.warning("Keine gültigen Höhen im Windprofil enthalten.")
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
 
-# -------------------------------
-# SEITENSTEUERUNG
-# -------------------------------
 if st.session_state.page == "START":
     startseite()
 elif st.session_state.page == "ILP":
