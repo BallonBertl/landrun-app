@@ -1,40 +1,56 @@
-# HAB CompetitionBrain Kindermann-Schön – Vollständiger Streamlit-Code
+# HAB CompetitionBrain Kindermann-Schön – vollständiger Code mit originaler Startseite
 import streamlit as st
-import utm
-import numpy as np
 import pandas as pd
+import numpy as np
+import utm
 
-# Globale Zustände
-if "wind_data" not in st.session_state:
-    st.session_state.wind_data = []
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
+
+# -------------------------------
+# Session-State vorbereiten
+# -------------------------------
+if "wind_df" not in st.session_state:
+    st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [m/s]"])
 if "wind_ready" not in st.session_state:
     st.session_state.wind_ready = False
+if "page" not in st.session_state:
+    st.session_state.page = "START"
 
-# ----------------------
+# -------------------------------
 # STARTSEITE
-# ----------------------
+# -------------------------------
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
 
     st.header("1) Windprofil eingeben")
-    with st.form("wind_input_form"):
-        num_layers = st.number_input("Anzahl Windschichten", min_value=1, max_value=20, value=5)
-        wind_data = []
-        for i in range(num_layers):
-            cols = st.columns(3)
-            height = cols[0].number_input(f"Höhe {i+1} (ft)", key=f"h_{i}")
-            dir_deg = cols[1].number_input(f"Richtung (°)", min_value=0, max_value=360, key=f"d_{i}")
-            speed = cols[2].number_input(f"Geschwindigkeit (m/s)", min_value=0.0, key=f"s_{i}")
-            # Richtungsvektor berechnen
-            dir_rad = np.radians(dir_deg)
-            wind_vector = [np.sin(dir_rad) * speed, np.cos(dir_rad) * speed]
-            wind_data.append({ "height": height, "wind": wind_vector })
 
-        submitted = st.form_submit_button("Windprofil speichern")
-        if submitted:
-            st.session_state.wind_data = wind_data
-            st.session_state.wind_ready = True
-            st.success("Windprofil erfolgreich gespeichert.")
+    upload_col, manual_col = st.columns(2)
+
+    with upload_col:
+        uploaded_file = st.file_uploader("Winddatei hochladen (.csv)", type=["csv", "txt"])
+        if uploaded_file is not None:
+            df = pd.read_csv(uploaded_file)
+            if set(["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [m/s]"]).issubset(df.columns):
+                st.session_state.wind_df = df
+                st.session_state.wind_ready = True
+                st.success("Windprofil erfolgreich geladen.")
+            else:
+                st.error("Ungültiges Format. Erforderlich: Höhe [ft], Richtung [°], Geschwindigkeit [m/s]")
+
+    with manual_col:
+        st.write("Oder manuelle Eingabe:")
+        st.session_state.wind_df = st.data_editor(
+            st.session_state.wind_df,
+            num_rows="dynamic",
+            use_container_width=True
+        )
+
+        if st.button("Windprofil übernehmen"):
+            if not st.session_state.wind_df.empty:
+                st.session_state.wind_ready = True
+                st.success("Windprofil übernommen.")
+            else:
+                st.error("Bitte mindestens eine Zeile eingeben.")
 
     st.divider()
     st.header("2) Aufgabe auswählen")
@@ -43,13 +59,13 @@ def startseite():
         col1, col2 = st.columns(3)[0:2]
         if col1.button("Aufgabe 1: ILP"):
             st.session_state.page = "ILP"
-        # Weitere Aufgaben-Buttons hier ergänzen (PDG, CRT, etc.)
+        # Weitere Aufgaben folgen
     else:
-        st.info("Bitte zuerst ein gültiges Windprofil eingeben, um Aufgaben zu aktivieren.")
+        st.info("Bitte zuerst ein gültiges Windprofil eingeben.")
 
-# ----------------------
-# AUFGABE ILP
-# ----------------------
+# -------------------------------
+# AUFGABE 1 – ILP
+# -------------------------------
 def ilp_seite():
     st.title("ILP – Individual Launch Point")
 
@@ -68,7 +84,16 @@ def ilp_seite():
     height_min, height_max = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
     rate_limit = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.0, 8.0, 2.0, step=0.5)
 
-    wind_profile = st.session_state.wind_data
+    df = st.session_state.wind_df
+    wind_profile = []
+    for _, row in df.iterrows():
+        h = row["Höhe [ft]"]
+        deg = row["Richtung [°]"]
+        spd = row["Geschwindigkeit [m/s]"]
+        dir_rad = np.radians(deg)
+        wind_vector = [np.sin(dir_rad) * spd, np.cos(dir_rad) * spd]
+        wind_profile.append({ "height": h, "wind": wind_vector })
+
     valid_layers = [w for w in wind_profile if height_min <= w["height"] <= height_max]
 
     ilp_candidates = []
@@ -77,11 +102,7 @@ def ilp_seite():
         t = (2 * h_m) / rate_limit
         dx = -w["wind"][0] * t
         dy = -w["wind"][1] * t
-        candidate = {
-            "easting": easting + dx,
-            "northing": northing + dy
-        }
-        ilp_candidates.append(candidate)
+        ilp_candidates.append({ "easting": easting + dx, "northing": northing + dy })
 
     if ilp_candidates:
         avg_e = np.mean([p["easting"] for p in ilp_candidates])
@@ -99,12 +120,9 @@ def ilp_seite():
     if st.button("Zurück zur Startseite"):
         st.session_state.page = "START"
 
-# ----------------------
+# -------------------------------
 # SEITENSTEUERUNG
-# ----------------------
-if "page" not in st.session_state:
-    st.session_state.page = "START"
-
+# -------------------------------
 if st.session_state.page == "START":
     startseite()
 elif st.session_state.page == "ILP":
