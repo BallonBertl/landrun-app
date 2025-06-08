@@ -1,5 +1,5 @@
 
-# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.5 (9. Juni 2025)
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.7
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -20,7 +20,7 @@ if "page" not in st.session_state:
 
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version ILP 1.5 – 9. Juni 2025")
+    st.caption("🛠 DEBUG: Version ILP 1.7 – 9. Juni 2025")
 
     st.header("1) Windprofil eingeben")
     upload_col, manual_col = st.columns(2)
@@ -50,12 +50,8 @@ def startseite():
             use_container_width=True
         )
 
-        if st.button("Windprofil übernehmen"):
-            if not st.session_state.wind_df.empty:
-                st.session_state.wind_ready = True
-                st.success("Windprofil übernommen.")
-            else:
-                st.error("Bitte mindestens eine Zeile eingeben.")
+        if not st.session_state.wind_df.empty:
+            st.session_state.wind_ready = True
 
     st.divider()
     st.header("2) Tools und Aufgaben")
@@ -68,6 +64,7 @@ def startseite():
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
             st.session_state.page = "ILP"
+            st.experimental_rerun()
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
@@ -103,9 +100,10 @@ def ilp_seite():
     st.caption(f"WGS84 Zielkoordinate: {lat:.6f}, {lon:.6f}")
 
     st.subheader("🧭 Einstellungen für ILP-Bereich")
-    range_km = st.slider("Gewünschte Startdistanz (km)", 0, 15, (2, 10))
+    range_km = st.slider("Gewünschte Startdistanz (km)", 0, 15, (2, 4))
     height_min, height_max = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
     rate_limit = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.0, 8.0, 2.0, step=0.5)
+    map_style = st.selectbox("Kartenstil", ["OpenStreetMap", "Esri.WorldImagery", "Stamen Terrain", "CartoDB positron"])
 
     df = st.session_state.wind_df
     wind_profile = []
@@ -129,7 +127,11 @@ def ilp_seite():
         t = (2 * h_m) / rate_limit
         dx = -w["wind"][0] * t
         dy = -w["wind"][1] * t
-        ilp_candidates.append({ "easting": easting + dx, "northing": northing + dy })
+        x = easting + dx
+        y = northing + dy
+        dist = sqrt((x - easting)**2 + (y - northing)**2)
+        if range_km[0]*1000 <= dist <= range_km[1]*1000:
+            ilp_candidates.append({ "easting": x, "northing": y })
 
     if ilp_candidates:
         avg_e = np.mean([p["easting"] for p in ilp_candidates])
@@ -140,7 +142,6 @@ def ilp_seite():
 
         st.subheader("📌 Ergebnis")
 
-        # ILP im gewählten Koordinatenformat
         if format == "4/4":
             ilp_e_out = int((avg_e - 500000) / 10)
             ilp_n_out = int((avg_n - 5200000) / 10)
@@ -151,8 +152,7 @@ def ilp_seite():
         st.success(f"ILP-Mittelpunkt (Vorschlag): {ilp_e_out} / {ilp_n_out} ({format}) – Radius: {radius_km:.2f} km")
         st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f}")
 
-        # Karte mit folium
-        m = folium.Map(location=[lat, lon], zoom_start=13)
+        m = folium.Map(location=[lat, lon], zoom_start=13, tiles=map_style)
         folium.Marker([lat, lon], popup="Ziel", icon=folium.Icon(color="red")).add_to(m)
         folium.Marker([ilp_lat, ilp_lon], popup="ILP-Mittelpunkt", icon=folium.Icon(color="green")).add_to(m)
         folium.Circle(
@@ -163,12 +163,12 @@ def ilp_seite():
             fill_opacity=0.4
         ).add_to(m)
         st_data = st_folium(m, width=700, height=500)
-
     else:
-        st.warning("Keine gültigen Höhen im Windprofil enthalten.")
+        st.warning("Keine gültigen Startpunkte innerhalb der gewünschten Distanz gefunden.")
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
+        st.experimental_rerun()
 
 if st.session_state.page == "START":
     startseite()
