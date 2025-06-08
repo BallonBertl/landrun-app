@@ -1,140 +1,144 @@
-
-# HAB CompetitionBrain Kindermann-Schön – Version 3.3
+# HAB CompetitionBrain Kindermann-Schön – Version 3.4
+# Komplettversion mit stabiler Startseite, funktionierendem Windeditor, ILP mit Ziel/Start-UTM (4/4 oder 5/4), Kartenanzeige, Rundum-Korrekturen
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import math
+import utm
 import folium
 from streamlit_folium import st_folium
-import utm
 
-# === Konstante Startwerte für Bad Waltersdorf ===
-ZONE_NUMBER = 33
-ZONE_LETTER = 'T'
-DEFAULT_EAST = 576010
-DEFAULT_NORTH = 5224670
+# ------------------------------ Initialisierung ------------------------------ #
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v3.4", layout="centered")
 
-def parse_utm_input(eingabe_ost, eingabe_nord, format):
-    try:
-        if format == "4/4":
-            return int("57" + eingabe_ost), int("522" + eingabe_nord)
-        elif format == "5/4":
-            return int(eingabe_ost), int("522" + eingabe_nord)
-        else:
-            return None, None
-    except:
-        return None, None
+if "wind_df" not in st.session_state:
+    st.session_state.wind_df = pd.DataFrame(columns=["Altitude (ft MSL)", "Wind direction (°)", "Wind speed (km/h)"])
 
-def calculate_ilp_center(e, n, wind_df, height_min, height_max, max_rate, radius_km):
-    wind_df = wind_df[(wind_df["Altitude (ft MSL)"] >= height_min) & (wind_df["Altitude (ft MSL)"] <= height_max)]
-    if wind_df.empty:
-        return None, "Keine Winddaten im Höhenbereich"
+if "seite" not in st.session_state:
+    st.session_state.seite = "start"
 
-    candidates = []
-    for _, row in wind_df.iterrows():
-        heading_deg = row["Wind heading (true deg)"]
-        speed_kmh = row["Wind speed (km/h)"]
-        speed_ms = speed_kmh / 3.6
+# ------------------------------ Navigation ------------------------------ #
+def zeige_navi_buttons():
+    st.divider()
+    cols = st.columns(4)
+    if st.session_state.wind_df.empty:
+        with cols[0]:
+            st.button("ILP", on_click=lambda: st.warning("Bitte zuerst Winddaten eingeben."))
+    else:
+        with cols[0]:
+            if st.button("ILP"):
+                st.session_state.seite = "ilp"
+                st.experimental_rerun()
+    with cols[1]:
+        st.button("Markerdrop", disabled=True)
+    with cols[2]:
+        st.button("Steigen/Sinken", disabled=True)
+    with cols[3]:
+        st.button("Einheiten umrechnen", disabled=True)
 
-        h_m = row["Altitude (ft MSL)"] * 0.3048
-        time_up_down = (2 * h_m) / max_rate
-
-        dx = -math.sin(math.radians(heading_deg)) * speed_ms * time_up_down
-        dy = -math.cos(math.radians(heading_deg)) * speed_ms * time_up_down
-
-        candidates.append((e + dx, n + dy))
-
-    if not candidates:
-        return None, "Keine Kandidaten berechnet"
-
-    avg_e = sum(p[0] for p in candidates) / len(candidates)
-    avg_n = sum(p[1] for p in candidates) / len(candidates)
-    return (avg_e, avg_n), None
-
+# ------------------------------ Startseite ------------------------------ #
 def startseite():
-    st.title("HAB CompetitionBrain Kindermann-Schön – v3.3")
+    st.title("HAB CompetitionBrain Kindermann-Schön")
 
-    st.header("1) Windprofil")
-    uploaded_file = st.file_uploader("Winddaten (.txt)", type="txt")
+    tab1, tab2 = st.tabs(["Winddaten aus Datei", "Winddaten manuell eingeben"])
 
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file, sep="\t", comment="#", engine="python")
-            df.columns = ["Altitude (ft MSL)", "Wind heading (true deg)", "Wind speed (km/h)"]
-            st.session_state.wind_df = df
-            st.success("Winddaten geladen.")
-        except Exception as e:
-            st.error(f"Fehler beim Einlesen: {e}")
+    with tab1:
+        uploaded_file = st.file_uploader("Lade eine Winddatei im .txt-Format hoch", type="txt")
+        if uploaded_file:
+            try:
+                df = pd.read_csv(uploaded_file, comment="#", delimiter=r"\s+", engine="python")
+                df.columns = ["Altitude (ft MSL)", "Wind direction (°)", "Wind speed (km/h)"]
+                st.session_state.wind_df = df
+                st.success("Winddaten erfolgreich geladen.")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Laden: {e}")
 
-    if "wind_df" in st.session_state:
-        st.header("2) Berechnen")
-        if st.button("ILP"):
-            st.session_state.page = "ILP"
-            st.experimental_rerun()
+    with tab2:
+        st.session_state.wind_df = st.data_editor(
+            st.session_state.wind_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="wind_editor"
+        )
 
-    st.header("3) Weitere Funktionen")
-    st.markdown("* Marker-Drop (folgt)")
-    st.markdown("* Steigen/Sinken (folgt)")
-    st.markdown("* Einheiten umrechnen (folgt)")
+    zeige_navi_buttons()
 
+# ------------------------------ ILP-Unterseite ------------------------------ #
 def ilp_seite():
     st.header("ILP – Individual Launch Point")
-    st.markdown("### Zielkoordinate (UTM-Auszug)")
+    st.subheader("Zielkoordinate (UTM-Auszug)")
 
-    format = st.selectbox("Koordinatenformat", ["4/4", "5/4"])
-    eingabe_ost = st.text_input("Ostwert", "7601")
-    eingabe_nord = st.text_input("Nordwert", "2467")
-    ziel_e, ziel_n = parse_utm_input(eingabe_ost, eingabe_nord, format)
+    format = st.selectbox("Koordinatenformat", ["4/4", "5/4"], index=0)
+    zone = "33T"
+    default_utm = (576010, 5224670)  # Bad Waltersdorf
+    short_east = int(str(default_utm[0])[-5:]) if format == "5/4" else int(str(default_utm[0])[-4:])
+    short_north = int(str(default_utm[1])[-4:])
 
-    st.markdown("### Einstellungen für ILP-Bereich")
-    distanz = st.slider("Gewünschte Startdistanz vom Ziel (km)", 0, 15, (2, 4))
-    hoehe = st.slider("Verwendete Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
-    rate = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.5, 8.0, 2.0, step=0.5)
+    col1, col2 = st.columns(2)
+    with col1:
+        e_in = st.text_input("UTM-Ostwert", value=str(short_east))
+    with col2:
+        n_in = st.text_input("UTM-Nordwert", value=str(short_north))
 
-    if ziel_e and ziel_n:
-        st.markdown(f"Ziel (UTM): {ziel_e}, {ziel_n}")
-        try:
-            lat, lon = utm.to_latlon(ziel_e, ziel_n, ZONE_NUMBER, ZONE_LETTER)
-            st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
+    # Umrechnung aus 4/4 oder 5/4 auf vollständige Koordinate
+    try:
+        e_len = 5 if format == "5/4" else 4
+        e_off = int(str(default_utm[0])[:6 - e_len])
+        full_e = int(str(e_off) + e_in)
+        full_n = int(str(default_utm[1])[:3] + n_in)
+        ziel_e, ziel_n = full_e, full_n
+    except:
+        st.error("Ungültige UTM-Eingabe.")
+        return
 
-            if "wind_df" in st.session_state:
-                mp_coords, fehler = calculate_ilp_center(ziel_e, ziel_n, st.session_state.wind_df, hoehe[0], hoehe[1], rate, distanz[1])
-                if mp_coords:
-                    mp_lat, mp_lon = utm.to_latlon(mp_coords[0], mp_coords[1], ZONE_NUMBER, ZONE_LETTER)
-                    st.success(f"Vorgeschlagener Startmittelpunkt: {mp_coords[0]:.1f} / {mp_coords[1]:.1f} (UTM)")
+    # Anzeige der Einstellungen für ILP-Bereich
+    st.subheader("Einstellungen für ILP-Bereich")
+    radius_km = st.slider("Gewünschte Startdistanz (km)", 0.5, 15.0, (2.0, 4.0), step=0.5)
+    height_min, height_max = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
+    max_rate = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.5, 8.0, 2.0, step=0.5)
 
-                    # Karte mit Kreis
-                    m = folium.Map(location=[lat, lon], zoom_start=13, tiles="OpenStreetMap")
-                    folium.Marker([lat, lon], tooltip="Ziel", icon=folium.Icon(color="red")).add_to(m)
-                    folium.Marker([mp_lat, mp_lon], tooltip="Start-Mittelpunkt", icon=folium.Icon(color="green")).add_to(m)
-                    folium.Circle(
-                        location=[lat, lon],
-                        radius=distanz[1] * 1000,
-                        color="blue",
-                        fill=True,
-                        fill_opacity=0.3,
-                        tooltip="Möglicher ILP-Bereich"
-                    ).add_to(m)
-                    st_folium(m, width=700, height=500)
-                else:
-                    st.error(fehler)
-            else:
-                st.warning("Kein Windprofil geladen.")
-        except Exception as e:
-            st.error(f"Koordinatenproblem: {e}")
-    else:
-        st.error("Ungültige Zielkoordinaten")
+    # Winddaten vorbereiten
+    df = st.session_state.wind_df.copy()
+    df = df[(df["Altitude (ft MSL)"] >= height_min) & (df["Altitude (ft MSL)"] <= height_max)]
+    if df.empty:
+        st.error("Keine Winddaten in diesem Höhenbereich.")
+        return
 
-    if st.button("Zurück zur Startseite"):
-        st.session_state.page = "Startseite"
-        st.experimental_rerun()
+    vectors = []
+    for _, row in df.iterrows():
+        heading_rad = math.radians(row["Wind direction (°)"])
+        spd_kmh = row["Wind speed (km/h)"]
+        spd_ms = spd_kmh / 3.6  # nur intern für Vektorrechnung
+        up_down_time = (2 * (row["Altitude (ft MSL)"] * 0.3048)) / max_rate
+        dx = -spd_ms * math.sin(heading_rad) * up_down_time
+        dy = -spd_ms * math.cos(heading_rad) * up_down_time
+        vectors.append((dx, dy))
 
-def main():
-    if "page" not in st.session_state:
-        st.session_state.page = "Startseite"
-    if st.session_state.page == "Startseite":
-        startseite()
-    elif st.session_state.page == "ILP":
-        ilp_seite()
+    dx_avg = np.mean([v[0] for v in vectors])
+    dy_avg = np.mean([v[1] for v in vectors])
 
-main()
+    mp_e = ziel_e + dx_avg
+    mp_n = ziel_n + dy_avg
+    mp_lat, mp_lon = utm.to_latlon(mp_e, mp_n, 33, 'T')
+
+    st.markdown(f"**Vorgeschlagener ILP-Mittelpunkt (UTM):** {str(mp_e)[:6]} / {str(mp_n)[-4:]}")
+
+    # Karte anzeigen
+    m = folium.Map(location=[mp_lat, mp_lon], zoom_start=13)
+    folium.Circle(location=[mp_lat, mp_lon], radius=radius_km[1]*1000,
+                  color="green", fill=True, fill_opacity=0.3).add_to(m)
+    ziel_lat, ziel_lon = utm.to_latlon(ziel_e, ziel_n, 33, 'T')
+    folium.Marker(location=[ziel_lat, ziel_lon], tooltip="Zielkoordinate", icon=folium.Icon(color="red")).add_to(m)
+    folium.Marker(location=[mp_lat, mp_lon], tooltip="Vorgeschlagener ILP", icon=folium.Icon(color="green")).add_to(m)
+
+    st_folium(m, width=700, height=500)
+
+    st.button("Zurück zur Startseite", on_click=lambda: st.session_state.update({"seite": "start"}))
+
+# ------------------------------ Hauptlogik ------------------------------ #
+if st.session_state.seite == "start":
+    startseite()
+elif st.session_state.seite == "ilp":
+    ilp_seite()
