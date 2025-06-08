@@ -42,16 +42,17 @@ def startseite():
             except Exception as e:
                 st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
+    
     with manual_col:
         st.write("Oder manuelle Eingabe:")
-                st.session_state.wind_df = st.data_editor(
+        st.session_state.wind_df = st.data_editor(
             st.session_state.wind_df,
             num_rows="dynamic",
             use_container_width=True
         )
-
-                if not st.session_state.wind_df.empty:
+        if not st.session_state.wind_df.empty:
             st.session_state.wind_ready = True
+
 
     st.divider()
     st.header("2) Tools und Aufgaben")
