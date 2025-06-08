@@ -1,4 +1,4 @@
-# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.2 (8. Juni 2025)
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.3 (8. Juni 2025)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -22,7 +22,7 @@ if "page" not in st.session_state:
 # -------------------------------
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version ILP 1.2 – 8. Juni 2025")
+    st.caption("🛠 DEBUG: Version ILP 1.3 – 8. Juni 2025")
 
     st.header("1) Windprofil eingeben")
 
@@ -63,13 +63,11 @@ def startseite():
     st.divider()
     st.header("2) Tools und Aufgaben")
 
-    # Immer sichtbare Tools
     st.subheader("Tools (immer verfügbar):")
     st.button("📍 Markerdrop (folgt)", disabled=True)
     st.button("⏬ Steigen/Sinken (folgt)", disabled=True)
     st.button("🔄 Einheiten umrechnen (folgt)", disabled=True)
 
-    # Aufgaben – nur sichtbar wenn Windprofil vorhanden
     if st.session_state.wind_ready:
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
@@ -93,8 +91,8 @@ def ilp_seite():
         east_part = st.text_input("Ostwert (4 Stellen)", value="7601")
         north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
         try:
-            easting = int(east_part) * 10
-            northing = int(north_part) * 10
+            easting = 500000 + int(east_part) * 10
+            northing = 5200000 + int(north_part) * 10
         except:
             st.error("Ungültige Eingabe für Koordinaten.")
             return
@@ -103,7 +101,7 @@ def ilp_seite():
         north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
         try:
             easting = int(east_part) * 10
-            northing = int(north_part) * 10
+            northing = 5200000 + int(north_part) * 10
         except:
             st.error("Ungültige Eingabe für Koordinaten.")
             return
