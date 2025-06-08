@@ -174,12 +174,14 @@ def ilp_seite():
         st.session_state.page = "START"
         st.experimental_rerun()
 
-if st.session_state.trigger_ilp:
-    st.session_state.page = "ILP"
-    st.session_state.trigger_ilp = False
-    st.experimental_rerun()
-
 if st.session_state.page == "START":
     startseite()
 elif st.session_state.page == "ILP":
     ilp_seite()
+
+
+# Seiten-Trigger prüfen (außerhalb von Funktionen!)
+if st.session_state.trigger_ilp:
+    st.session_state.page = "ILP"
+    st.session_state.trigger_ilp = False
+    st.experimental_rerun()
