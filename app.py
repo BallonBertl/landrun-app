@@ -17,7 +17,6 @@ if "wind_ready" not in st.session_state:
     st.session_state.wind_ready = False
 if "page" not in st.session_state:
     st.session_state.page = "START"
-if "trigger_ilp" not in st.session_state:
     st.session_state.trigger_ilp = False
     st.session_state.page = "START"
 
@@ -156,7 +155,12 @@ def ilp_seite():
         st.success(f"ILP-Mittelpunkt (Vorschlag): {ilp_e_out} / {ilp_n_out} ({format}) – Radius: {radius_km:.2f} km")
         st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f}")
 
-        m = folium.Map(location=[lat, lon], zoom_start=13, tiles=map_style)
+        m = folium.Map(
+        location=[lat, lon],
+        zoom_start=13,
+        tiles="https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
+        attr="Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL."
+    )
         folium.Marker([lat, lon], popup="Ziel", icon=folium.Icon(color="red")).add_to(m)
         folium.Marker([ilp_lat, ilp_lon], popup="ILP-Mittelpunkt", icon=folium.Icon(color="green")).add_to(m)
         folium.Circle(
@@ -180,11 +184,7 @@ elif st.session_state.page == "ILP":
     ilp_seite()
 
 
-# Seiten-Trigger prüfen (außerhalb von Funktionen!)
-if st.session_state.trigger_ilp:
-    st.session_state.page = "ILP"
-    st.session_state.trigger_ilp = False
-    # st.experimental_rerun() [deaktiviert – nur am Dateiende erlaubt]
+ [deaktiviert – nur am Dateiende erlaubt]
 
 
 # ✅ Sichere Navigation (außerhalb aller Funktionen)
