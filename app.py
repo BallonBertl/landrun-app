@@ -68,7 +68,7 @@ def startseite():
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
             st.session_state.page = "ILP"
-            st.experimental_rerun()
+            # st.experimental_rerun() [deaktiviert – nur am Dateiende erlaubt]
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
@@ -172,7 +172,7 @@ def ilp_seite():
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
-        st.experimental_rerun()
+        # st.experimental_rerun() [deaktiviert – nur am Dateiende erlaubt]
 
 if st.session_state.page == "START":
     startseite()
@@ -181,6 +181,13 @@ elif st.session_state.page == "ILP":
 
 
 # Seiten-Trigger prüfen (außerhalb von Funktionen!)
+if st.session_state.trigger_ilp:
+    st.session_state.page = "ILP"
+    st.session_state.trigger_ilp = False
+    # st.experimental_rerun() [deaktiviert – nur am Dateiende erlaubt]
+
+
+# ✅ Sichere Navigation (außerhalb aller Funktionen)
 if st.session_state.trigger_ilp:
     st.session_state.page = "ILP"
     st.session_state.trigger_ilp = False
