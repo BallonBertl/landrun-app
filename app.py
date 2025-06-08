@@ -9,7 +9,7 @@ from math import sqrt
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v2.5")
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v2.6")
 
 if "wind_df" not in st.session_state:
     st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
@@ -21,7 +21,7 @@ if "page" not in st.session_state:
     st.session_state.page = "START"
 
 def startseite():
-    st.title("HAB CompetitionBrain Kindermann-Schön – v2.4
+    st.title("HAB CompetitionBrain Kindermann-Schön – v2.6")
     st.caption("🛠 DEBUG: Version ILP 1.7 – 9. Juni 2025")
 
     st.header("1) Windprofil eingeben")
