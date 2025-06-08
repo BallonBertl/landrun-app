@@ -1,4 +1,4 @@
-# HAB CompetitionBrain Kindermann-Schön – Version 5 garantiert korrekt
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.2 (8. Juni 2025)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -22,7 +22,7 @@ if "page" not in st.session_state:
 # -------------------------------
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version 5 – vollständiger Code aktiv")
+    st.caption("🛠 DEBUG: Version ILP 1.2 – 8. Juni 2025")
 
     st.header("1) Windprofil eingeben")
 
@@ -88,23 +88,43 @@ def ilp_seite():
     zone_letter = zone[-1]
 
     format = st.selectbox("Koordinatenformat", ["4/4", "5/4"])
-    easting = st.number_input("UTM-Ostwert", value=654200)
-    northing = st.number_input("UTM-Nordwert", value=5231170)
+
+    if format == "4/4":
+        east_part = st.text_input("Ostwert (4 Stellen)", value="7601")
+        north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
+        try:
+            easting = int(east_part) * 10
+            northing = int(north_part) * 10
+        except:
+            st.error("Ungültige Eingabe für Koordinaten.")
+            return
+    else:
+        east_part = st.text_input("Ostwert (5 Stellen)", value="57601")
+        north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
+        try:
+            easting = int(east_part) * 10
+            northing = int(north_part) * 10
+        except:
+            st.error("Ungültige Eingabe für Koordinaten.")
+            return
 
     lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
     st.caption(f"WGS84 (nur intern): {lat:.6f}, {lon:.6f}")
 
-    range_km = st.slider("Erlaubte Startdistanz vom Ziel (km)", 1, 50, (2, 10))
+    range_km = st.slider("Gewünschte Startdistanz (km)", 0, 15, (2, 10))
     height_min, height_max = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
     rate_limit = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.0, 8.0, 2.0, step=0.5)
 
     df = st.session_state.wind_df
     wind_profile = []
     for _, row in df.iterrows():
-        h = row["Höhe [ft]"]
-        deg = row["Richtung [°]"]
-        spd_kmh = row["Geschwindigkeit [km/h]"]
-        spd_ms = spd_kmh / 3.6  # nur intern für Vektorrechnung
+        try:
+            h = float(row["Höhe [ft]"])
+            deg = float(row["Richtung [°]"])
+            spd_kmh = float(row["Geschwindigkeit [km/h]"])
+        except:
+            continue
+        spd_ms = spd_kmh / 3.6
         dir_rad = np.radians(deg)
         wind_vector = [np.sin(dir_rad) * spd_ms, np.cos(dir_rad) * spd_ms]
         wind_profile.append({ "height": h, "wind": wind_vector })
