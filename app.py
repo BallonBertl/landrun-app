@@ -1,4 +1,4 @@
-# HAB CompetitionBrain Kindermann-Schön – Version 4 mit vollständiger Fehlerkorrektur
+# HAB CompetitionBrain Kindermann-Schön – Version 5 garantiert korrekt
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -22,6 +22,7 @@ if "page" not in st.session_state:
 # -------------------------------
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
+    st.caption("🛠 DEBUG: Version 5 – vollständiger Code aktiv")
 
     st.header("1) Windprofil eingeben")
 
