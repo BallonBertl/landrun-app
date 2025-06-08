@@ -39,7 +39,8 @@ def startseite():
                     st.session_state.wind_df = df
                     st.session_state.wind_ready = True
                     st.success("Windprofil erfolgreich geladen.")
-                else:
+
+else:
                     st.error("Datei erkannt, aber nicht genügend Spalten gefunden.")
             except Exception as e:
                 st.error(f"Fehler beim Verarbeiten der Datei: {e}")
@@ -67,7 +68,8 @@ def startseite():
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
             st.session_state.page = "ILP"
-                else:
+
+else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
 def ilp_seite():
@@ -88,7 +90,8 @@ def ilp_seite():
         except:
             st.error("Ungültige Eingabe.")
             return
-    else:
+
+else:
         east_part = st.text_input("Ostwert (5 Stellen)", value="57601")
         north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
         try:
@@ -147,7 +150,8 @@ def ilp_seite():
         if format == "4/4":
             ilp_e_out = int((avg_e - 500000) / 10)
             ilp_n_out = int((avg_n - 5200000) / 10)
-        else:
+
+else:
             ilp_e_out = int(avg_e / 10)
             ilp_n_out = int((avg_n - 5200000) / 10)
 
@@ -170,7 +174,8 @@ def ilp_seite():
             fill_opacity=0.4
         ).add_to(m)
         st_data = st_folium(m, width=700, height=500)
-    else:
+
+else:
         st.warning("Keine gültigen Startpunkte innerhalb der gewünschten Distanz gefunden.")
 
     if st.button("🔙 Zurück zur Startseite"):
