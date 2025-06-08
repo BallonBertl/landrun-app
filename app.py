@@ -1,153 +1,138 @@
+# HAB CompetitionBrain Kindermann-Schön – v1.7
+# Erstellt am 2025-06-08 20:09:31
+
+# -- Import-Module --
 import streamlit as st
 import pandas as pd
-import numpy as np
 import folium
-from folium import Circle
 from streamlit_folium import st_folium
-import math
 import utm
+import math
 
-st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v3.5")
+# -- Seitenkonfiguration --
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v1.7")
 
-# --- Startseite ---
-def startseite():
-    st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.header("Winddaten eingeben")
+# -- Session State Initialisierung --
+if "wind_df" not in st.session_state:
+    st.session_state.wind_df = pd.DataFrame()
+if "wind_loaded" not in st.session_state:
+    st.session_state.wind_loaded = False
 
-    option = st.radio("Eingabemethode wählen:", ("Winddaten aus Datei hochladen", "Winddaten manuell eingeben"))
+# -- Funktionen --
 
-    if option == "Winddaten aus Datei hochladen":
-        uploaded_file = st.file_uploader("Winddatei (.txt) hochladen", type="txt")
-        if uploaded_file is not None:
-            try:
-                lines = uploaded_file.read().decode("utf-8").splitlines()
-                data = []
-                for line in lines:
-                    if line.startswith("#") or "Altitude" in line or line.strip() == "":
-                        continue
-                    parts = line.strip().split()
-                    if len(parts) >= 3:
-                        try:
-                            alt = float(parts[0])
-                            hdg = float(parts[1])
-                            spd = float(parts[2])
-                            data.append((alt, hdg, spd))
-                        except:
-                            continue
-                df = pd.DataFrame(data, columns=["Altitude_ft", "Windrichtung_deg", "Windgeschw_kmh"])
-                st.session_state.wind_df = df
-                st.success("Winddaten erfolgreich geladen.")
-                st.dataframe(df)
-            except Exception as e:
-                st.error(f"Fehler beim Laden: {e}")
-    else:
-        if "wind_df" not in st.session_state:
-            st.session_state.wind_df = pd.DataFrame({
-                "Altitude_ft": [0, 1000, 2000],
-                "Windrichtung_deg": [0, 90, 180],
-                "Windgeschw_kmh": [10, 20, 30]
-            })
+def parse_uploaded_file(upload):
+    try:
+        df = pd.read_csv(upload, sep="\t", skiprows=2, engine="python", header=None)
+        df.columns = ["Höhe (ft)", "Richtung (°)", "Geschwindigkeit (km/h)"]
+        st.session_state.wind_df = df
+        st.session_state.wind_loaded = True
+    except Exception as e:
+        st.error(f"Fehler beim Laden: {e}")
 
-        st.session_state.wind_df = st.data_editor(
-            st.session_state.wind_df,
-            num_rows="dynamic",
-            use_container_width=True
-        )
-
-    st.header("Berechnen")
-    if "wind_df" in st.session_state and not st.session_state.wind_df.empty:
-        st.page_link("/ILP", label="ILP", icon="🎯")
-    else:
-        st.info("Bitte zuerst gültige Winddaten eingeben.")
-
-    st.divider()
-    st.page_link("/dummy1", label="Markerdrop", disabled=True)
-    st.page_link("/dummy2", label="Steigen/Sinken", disabled=True)
-    st.page_link("/dummy3", label="Einheiten umrechnen", disabled=True)
-
-# --- ILP Unterseite ---
-def ilp_seite():
-    st.title("ILP – Individual Launch Point")
-
-    st.subheader("Zielkoordinate (UTM)")
-    format = st.selectbox("Koordinatenformat", ["4/4", "5/4"])
+def convert_to_utm(eingabe_ost, eingabe_nord, format, zone="33T"):
+    base_e, base_n = 576000, 5224000  # Bad Waltersdorf
     if format == "4/4":
-        ost = st.text_input("UTM-Ostwert", value="7601")
-        nord = st.text_input("UTM-Nordwert", value="2467")
-        try:
-            ost_full = int("576000"[:6 - len(ost)] + ost)
-            nord_full = int("5224000"[:7 - len(nord)] + nord)
-        except:
-            st.error("Ungültige Koordinate")
-            return
-    else:
-        ost = st.text_input("UTM-Ostwert", value="57601")
-        nord = st.text_input("UTM-Nordwert", value="2467")
-        try:
-            ost_full = int("576000"[:6 - len(ost)] + ost)
-            nord_full = int("5224000"[:7 - len(nord)] + nord)
-        except:
-            st.error("Ungültige Koordinate")
-            return
+        return base_e - (base_e % 10000) + eingabe_ost, base_n - (base_n % 10000) + eingabe_nord
+    elif format == "5/4":
+        return base_e - (base_e % 100000) + eingabe_ost, base_n - (base_n % 10000) + eingabe_nord
+    return None, None
 
-    ziel_e, ziel_n = ost_full, nord_full
+def ilp_seite():
+    st.markdown("## ILP – Individual Launch Point")
+    st.markdown("### Zielkoordinate")
 
-    st.subheader("Einstellungen für ILP-Bereich")
+    format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
+    ost = st.number_input("UTM-Ostwert", value=7601 if format == "4/4" else 57601)
+    nord = st.number_input("UTM-Nordwert", value=2467)
+
+    ziel_e, ziel_n = convert_to_utm(int(ost), int(nord), format)
+    if not ziel_e or not ziel_n:
+        st.stop()
+
+    st.markdown("### Einstellungen für ILP-Bereich")
+
     distanz = st.slider("Gewünschte Startdistanz vom Ziel (km)", 0, 15, (2, 4))
-    hoehe = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
+    hoehen_ft = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
     rate = st.slider("Max. Steig-/Sinkrate (m/s)", 0.0, 8.0, 2.0, step=0.5)
 
-    if st.button("ILP-Bereich berechnen"):
-        df = st.session_state.get("wind_df")
-        if df is None or df.empty:
-            st.error("Keine Winddaten vorhanden.")
-            return
+    if not st.session_state.wind_loaded:
+        st.warning("Bitte zuerst Winddaten auf der Startseite eingeben.")
+        return
 
-        winds = df[(df["Altitude_ft"] >= hoehe[0]) & (df["Altitude_ft"] <= hoehe[1])]
+    df = st.session_state.wind_df.copy()
+    df = df[(df["Höhe (ft)"] >= hoehen_ft[0]) & (df["Höhe (ft)"] <= hoehen_ft[1])]
+    if df.empty:
+        st.error("Kein Windprofil in diesem Höhenbereich.")
+        return
 
-        if winds.empty:
-            st.error("Keine passenden Windschichten gefunden.")
-            return
+    kreispunkte = []
+    for _, row in df.iterrows():
+        windrichtung = row["Richtung (°)"]
+        windgeschw_kmh = row["Geschwindigkeit (km/h)"]
+        windgeschw_ms = windgeschw_kmh / 3.6
+        steigezeit = (2 * (row["Höhe (ft)"] * 0.3048)) / rate  # m to m, v in m/s
+        distanz_m = windgeschw_ms * steigezeit
+        rückrichtung_rad = math.radians((windrichtung + 180) % 360)
+        dx = math.sin(rückrichtung_rad) * distanz_m
+        dy = math.cos(rückrichtung_rad) * distanz_m
+        kreispunkte.append((ziel_e + dx, ziel_n + dy))
 
-        punkte = []
-        for _, row in winds.iterrows():
-            h_m = row["Altitude_ft"] * 0.3048
-            t = (2 * h_m) / rate
-            richtung_rad = math.radians(row["Windrichtung_deg"])
-            spd_kmh = row["Windgeschw_kmh"]
-            spd_ms = spd_kmh / 3.6
-            dx = -math.sin(richtung_rad) * spd_ms * t
-            dy = -math.cos(richtung_rad) * spd_ms * t
-            punkte.append((ziel_e + dx, ziel_n + dy))
+    mp_e = sum(p[0] for p in kreispunkte) / len(kreispunkte)
+    mp_n = sum(p[1] for p in kreispunkte) / len(kreispunkte)
 
-        mp_e = np.mean([p[0] for p in punkte])
-        mp_n = np.mean([p[1] for p in punkte])
-        mp_lat, mp_lon = utm.to_latlon(mp_e, mp_n, 33, 'T')
-        radius = distanz[1] * 1000
+    try:
+        mp_lat, mp_lon = utm.to_latlon(mp_e, mp_n, 33, "T")
+        ziel_lat, ziel_lon = utm.to_latlon(ziel_e, ziel_n, 33, "T")
+        m = folium.Map(location=[ziel_lat, ziel_lon], zoom_start=13, tiles="OpenStreetMap")
+        folium.Marker(location=[ziel_lat, ziel_lon], popup="Ziel").add_to(m)
+        folium.Circle(location=[mp_lat, mp_lon], radius=distanz[1]*1000,
+                      color="green", fill=True, fill_opacity=0.4).add_to(m)
+        folium.Marker(location=[mp_lat, mp_lon], popup="Vorgeschlagener ILP", icon=folium.Icon(color="green")).add_to(m)
+        st_data = st_folium(m, width=700, height=500)
 
-        st.success(f"Vorgeschlagener Mittelpunkt des ILP: {mp_e:.0f} / {mp_n:.0f} (UTM)")
-
-        m = folium.Map(location=[mp_lat, mp_lon], zoom_start=13, tiles="OpenStreetMap")
-        Circle(location=[mp_lat, mp_lon], radius=radius, color="green", fill=True, fill_opacity=0.3).add_to(m)
-        folium.Marker([mp_lat, mp_lon], popup="Vorgeschlagener ILP", icon=folium.Icon(color="green")).add_to(m)
-        ziel_lat, ziel_lon = utm.to_latlon(ziel_e, ziel_n, 33, 'T')
-        folium.Marker([ziel_lat, ziel_lon], popup="Ziel", icon=folium.Icon(color="red")).add_to(m)
-
-        st_folium(m, width=700, height=500)
+        st.success(f"Vorgeschlagene Startkoordinate: {str(int(mp_e))[-5:] if format=='5/4' else str(int(mp_e))[-4:]} / {str(int(mp_n))[-4:]}")
+    except Exception as e:
+        st.error(f"Fehler bei Kartenanzeige: {e}")
 
     if st.button("Zurück zur Startseite"):
-        st.switch_page("/")
+        st.experimental_rerun()
 
-# --- Navigation ---
-if __name__ == "__main__":
-    if "page" not in st.session_state:
-        st.session_state.page = "start"
+def startseite():
+    st.title("HAB CompetitionBrain Kindermann-Schön")
+    st.header("1) Windprofil")
+    tab1, tab2 = st.tabs(["Winddatei hochladen", "Manuell eingeben"])
 
-    page = st.session_state.page
+    with tab1:
+        upload = st.file_uploader("Winddaten als .txt", type=["txt"])
+        if upload:
+            parse_uploaded_file(upload)
+    with tab2:
+        df = st.data_editor(pd.DataFrame({
+            "Höhe (ft)": [],
+            "Richtung (°)": [],
+            "Geschwindigkeit (km/h)": []
+        }), num_rows="dynamic")
+        if not df.empty:
+            st.session_state.wind_df = df
+            st.session_state.wind_loaded = True
 
-    if page == "start":
-        startseite()
-    elif page == "ILP":
-        ilp_seite()
+    st.header("2) Berechnungen")
+    if st.session_state.wind_loaded:
+        if st.button("ILP"):
+            st.session_state["seite"] = "ilp"
     else:
-        startseite()
+        st.info("Bitte zuerst Winddaten eingeben.")
+
+    st.header("Weitere Funktionen")
+    st.button("MarkerDrop (Platzhalter)")
+    st.button("Steigen/Sinken (Platzhalter)")
+    st.button("Einheiten umrechnen (Platzhalter)")
+
+# -- Hauptlogik --
+if "seite" not in st.session_state:
+    st.session_state["seite"] = "start"
+
+if st.session_state["seite"] == "start":
+    startseite()
+elif st.session_state["seite"] == "ilp":
+    ilp_seite()
