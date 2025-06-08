@@ -17,6 +17,9 @@ if "wind_ready" not in st.session_state:
     st.session_state.wind_ready = False
 if "page" not in st.session_state:
     st.session_state.page = "START"
+if "trigger_ilp" not in st.session_state:
+    st.session_state.trigger_ilp = False
+    st.session_state.page = "START"
 
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
@@ -170,6 +173,11 @@ def ilp_seite():
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
         st.experimental_rerun()
+
+if st.session_state.trigger_ilp:
+    st.session_state.page = "ILP"
+    st.session_state.trigger_ilp = False
+    st.experimental_rerun()
 
 if st.session_state.page == "START":
     startseite()
