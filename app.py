@@ -1,8 +1,9 @@
-# HAB CompetitionBrain Kindermann-Schön – vollständiger Code mit originaler Startseite
+# HAB CompetitionBrain Kindermann-Schön – vollständige App mit echter Winddatenstruktur und Aufgabenlogik
 import streamlit as st
 import pandas as pd
 import numpy as np
 import utm
+import io
 
 st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 
@@ -10,7 +11,7 @@ st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 # Session-State vorbereiten
 # -------------------------------
 if "wind_df" not in st.session_state:
-    st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [m/s]"])
+    st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
 if "wind_ready" not in st.session_state:
     st.session_state.wind_ready = False
 if "page" not in st.session_state:
@@ -27,15 +28,20 @@ def startseite():
     upload_col, manual_col = st.columns(2)
 
     with upload_col:
-        uploaded_file = st.file_uploader("Winddatei hochladen (.csv)", type=["csv", "txt"])
+        uploaded_file = st.file_uploader("Winddatei hochladen (.txt oder .csv)", type=["txt", "csv"])
         if uploaded_file is not None:
-            df = pd.read_csv(uploaded_file)
-            if set(["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [m/s]"]).issubset(df.columns):
-                st.session_state.wind_df = df
-                st.session_state.wind_ready = True
-                st.success("Windprofil erfolgreich geladen.")
-            else:
-                st.error("Ungültiges Format. Erforderlich: Höhe [ft], Richtung [°], Geschwindigkeit [m/s]")
+            try:
+                content = uploaded_file.read().decode("utf-8")
+                df = pd.read_csv(io.StringIO(content), sep="\t", comment="#", header=None)
+                if df.shape[1] >= 3:
+                    df.columns = ["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"]
+                    st.session_state.wind_df = df
+                    st.session_state.wind_ready = True
+                    st.success("Windprofil erfolgreich geladen.")
+                else:
+                    st.error("Datei erkannt, aber nicht genügend Spalten gefunden.")
+            except Exception as e:
+                st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
     with manual_col:
         st.write("Oder manuelle Eingabe:")
@@ -53,18 +59,27 @@ def startseite():
                 st.error("Bitte mindestens eine Zeile eingeben.")
 
     st.divider()
-    st.header("2) Aufgabe auswählen")
+    st.header("2) Aufgabenübersicht")
 
+    # Immer sichtbare Tools
+    st.subheader("Tools (immer verfügbar):")
+    cols = st.columns(3)
+    cols[0].button("📍 Markerdrop (folgt)", disabled=True)
+    cols[1].button("⏬ Steigen/Sinken (folgt)", disabled=True)
+    cols[2].button("🔄 Einheiten umrechnen (folgt)", disabled=True)
+
+    # Aufgaben – nur sichtbar wenn Windprofil vorhanden
     if st.session_state.wind_ready:
-        col1, col2 = st.columns(3)[0:2]
-        if col1.button("Aufgabe 1: ILP"):
+        st.subheader("Aufgaben (aktiv nach Winddaten):")
+        col1 = st.columns(3)[0]
+        if col1.button("ILP"):
             st.session_state.page = "ILP"
         # Weitere Aufgaben folgen
     else:
-        st.info("Bitte zuerst ein gültiges Windprofil eingeben.")
+        st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
 # -------------------------------
-# AUFGABE 1 – ILP
+# ILP SEITE
 # -------------------------------
 def ilp_seite():
     st.title("ILP – Individual Launch Point")
@@ -89,9 +104,10 @@ def ilp_seite():
     for _, row in df.iterrows():
         h = row["Höhe [ft]"]
         deg = row["Richtung [°]"]
-        spd = row["Geschwindigkeit [m/s]"]
+        spd_kmh = row["Geschwindigkeit [km/h]"]
+        spd_ms = spd_kmh / 3.6  # nur intern für Vektorrechnung
         dir_rad = np.radians(deg)
-        wind_vector = [np.sin(dir_rad) * spd, np.cos(dir_rad) * spd]
+        wind_vector = [np.sin(dir_rad) * spd_ms, np.cos(dir_rad) * spd_ms]
         wind_profile.append({ "height": h, "wind": wind_vector })
 
     valid_layers = [w for w in wind_profile if height_min <= w["height"] <= height_max]
