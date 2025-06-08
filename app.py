@@ -1,4 +1,4 @@
-# HAB CompetitionBrain Kindermann-Schön – vollständige App mit echter Winddatenstruktur und Aufgabenlogik
+# HAB CompetitionBrain Kindermann-Schön – Version 4 mit vollständiger Fehlerkorrektur
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -31,8 +31,9 @@ def startseite():
         uploaded_file = st.file_uploader("Winddatei hochladen (.txt oder .csv)", type=["txt", "csv"])
         if uploaded_file is not None:
             try:
-                content = uploaded_file.read().decode("utf-8")
-                df = pd.read_csv(io.StringIO(content), sep="\t", comment="#", header=None)
+                lines = uploaded_file.read().decode("utf-8").splitlines()
+                data_lines = [line for line in lines if not line.startswith("#") and line.strip() != ""]
+                df = pd.read_csv(io.StringIO("\n".join(data_lines)), sep="\t", header=None)
                 if df.shape[1] >= 3:
                     df.columns = ["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"]
                     st.session_state.wind_df = df
@@ -59,22 +60,19 @@ def startseite():
                 st.error("Bitte mindestens eine Zeile eingeben.")
 
     st.divider()
-    st.header("2) Aufgabenübersicht")
+    st.header("2) Tools und Aufgaben")
 
     # Immer sichtbare Tools
     st.subheader("Tools (immer verfügbar):")
-    cols = st.columns(3)
-    cols[0].button("📍 Markerdrop (folgt)", disabled=True)
-    cols[1].button("⏬ Steigen/Sinken (folgt)", disabled=True)
-    cols[2].button("🔄 Einheiten umrechnen (folgt)", disabled=True)
+    st.button("📍 Markerdrop (folgt)", disabled=True)
+    st.button("⏬ Steigen/Sinken (folgt)", disabled=True)
+    st.button("🔄 Einheiten umrechnen (folgt)", disabled=True)
 
     # Aufgaben – nur sichtbar wenn Windprofil vorhanden
     if st.session_state.wind_ready:
         st.subheader("Aufgaben (aktiv nach Winddaten):")
-        col1 = st.columns(3)[0]
-        if col1.button("ILP"):
+        if st.button("ILP"):
             st.session_state.page = "ILP"
-        # Weitere Aufgaben folgen
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
@@ -133,7 +131,7 @@ def ilp_seite():
     else:
         st.warning("Keine gültige Höhe im Windprofil ausgewählt.")
 
-    if st.button("Zurück zur Startseite"):
+    if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
 
 # -------------------------------
