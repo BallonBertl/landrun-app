@@ -67,7 +67,7 @@ def startseite():
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
             st.session_state.page = "ILP"
-            # st.experimental_rerun() [deaktiviert – nur am Dateiende erlaubt]
+            # st.experimental_rerun() [deaktiviert - nur am Dateiende erlaubt]
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
@@ -176,7 +176,7 @@ def ilp_seite():
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
-        # st.experimental_rerun() [deaktiviert – nur am Dateiende erlaubt]
+        # st.experimental_rerun() [deaktiviert - nur am Dateiende erlaubt]
 
 if st.session_state.page == "START":
     startseite()
