@@ -44,7 +44,8 @@ def startseite():
 
     with manual_col:
         st.write("Oder manuelle Eingabe:")
-        st.session_state.wind_df = st.data_editor(
+        # Dateneditor manuell, aber kein automatischer Rerun hier:
+st.session_state.wind_df = st.data_editor(
             st.session_state.wind_df,
             num_rows="dynamic",
             use_container_width=True
