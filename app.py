@@ -1,174 +1,142 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import math
-import folium
-from folium import Marker, PolyLine
-from pyproj import Transformer
-import re
-from itertools import combinations
-import concurrent.futures
+// ILP – Individual Launch Point UI-Komponente mit realistischer Rückwärtssimulation
 
-st.set_page_config(page_title="Land Run Auswertung", layout="centered")
-st.title("🏁 Land Run Auswertung")
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectItem, SelectContent } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import MapWithCircle from "@/components/map/MapWithCircle";
+import * as utm from "utm";
 
-# ------------------ 1. WINDDATEN ------------------
-st.header("🌬️ Winddaten eingeben")
-mode = st.radio("Eingabeart:", ["Datei hochladen", "Manuell eingeben"])
-df = None
+const exampleWindProfile = [
+  { height: 0, wind: [1.0, 0.0] },
+  { height: 500, wind: [0.5, 0.5] },
+  { height: 1000, wind: [0.0, 1.0] },
+  { height: 1500, wind: [-0.5, 0.5] },
+  { height: 2000, wind: [-1.0, 0.0] }
+];
 
-if mode == "Datei hochladen":
-    uploaded_file = st.file_uploader("Winddaten (.csv oder .txt)", type=["csv", "txt"])
-    if uploaded_file:
-        try:
-            if uploaded_file.name.endswith(".txt"):
-                txt_content = uploaded_file.read().decode("utf-8", errors="ignore")
-                lines = txt_content.strip().splitlines()[1:]
-                data = []
-                for line in lines:
-                    parts = re.split(r"[\t\s]+", line.strip())
-                    if len(parts) == 3:
-                        data.append([float(p) for p in parts])
-                df = pd.DataFrame(data, columns=["Altitude_ft", "Direction_deg", "Speed_kmh"])
-            else:
-                df = pd.read_csv(uploaded_file)
-        except Exception as e:
-            st.error(f"Fehler beim Einlesen der Datei: {e}")
-elif mode == "Manuell eingeben":
-    default_data = pd.DataFrame({
-        'Altitude_ft': [0, 1000, 2000, 3000],
-        'Direction_deg': [0, 45, 90, 135],
-        'Speed_kmh': [10, 15, 20, 25]
-    })
-    raw_df = st.data_editor(default_data, num_rows="dynamic", use_container_width=True)
-    try:
-        df = raw_df.dropna()
-        df = df.astype({'Altitude_ft': float, 'Direction_deg': float, 'Speed_kmh': float})
-        if df.empty:
-            st.warning("⚠️ Keine gültigen Winddaten eingegeben.")
-            df = None
-    except Exception as e:
-        st.error(f"Fehlerhafte Eingaben: {e}")
-        df = None
+export default function ILPPage() {
+  const [utmZone, setUtmZone] = useState("33T");
+  const [format, setFormat] = useState("4/4");
+  const [utmEast, setUtmEast] = useState(654200);
+  const [utmNorth, setUtmNorth] = useState(5231170);
+  const [rangeKm, setRangeKm] = useState([2, 10]);
+  const [heightLimits, setHeightLimits] = useState([0, 3000]);
+  const [rateLimit, setRateLimit] = useState(2);
+  const [latlon, setLatlon] = useState({ lat: 0, lon: 0 });
+  const [ilpResults, setIlpResults] = useState(null);
 
-col1, col2 = st.columns(2)
-with col1:
-    flight_time_min = st.number_input("Flugdauer [min]", min_value=5, max_value=90, value=30, step=5)
-with col2:
-    climb_rate = st.number_input("Steig-/Sinkrate [m/s]", min_value=0.1, max_value=10.0, value=4.0, step=0.1)
+  function handleUTMChange() {
+    try {
+      const zoneNumber = parseInt(utmZone.slice(0, -1));
+      const zoneLetter = utmZone.slice(-1);
+      const { latitude, longitude } = utm.toLatLon(utmEast, utmNorth, zoneNumber, zoneLetter);
+      setLatlon({ lat: latitude, lon: longitude });
+    } catch (err) {
+      setLatlon({ lat: 0, lon: 0 });
+    }
+  }
 
-# ------------------ 2. BERECHNUNG & TOP 10 ------------------
-def simulate_landrun_fast_unique(df, duration_sec, climb_rate):
-    altitudes = df['Altitude_ft'].unique()
-    altitudes.sort()
-    interp_dirs = {alt: np.interp(alt, df['Altitude_ft'], df['Direction_deg']) for alt in altitudes}
-    interp_speeds = {alt: np.interp(alt, df['Altitude_ft'], df['Speed_kmh']) for alt in altitudes}
-    wind_vectors = {}
-    for alt in altitudes:
-        dir_rad = math.radians(interp_dirs[alt])
-        speed_ms = interp_speeds[alt] / 3.6
-        dx = speed_ms * math.sin(dir_rad)
-        dy = speed_ms * math.cos(dir_rad)
-        wind_vectors[alt] = np.array([dx, dy])
+  function simulateILP() {
+    handleUTMChange();
+    const zoneNumber = parseInt(utmZone.slice(0, -1));
+    const zoneLetter = utmZone.slice(-1);
 
-    combos = [(h1, h2) for h1, h2 in combinations(altitudes, 2)
-              if (duration_sec - abs(h2 - h1) * 0.3048 / climb_rate) > 0]
+    const activeWinds = exampleWindProfile.filter(w => w.height >= heightLimits[0] && w.height <= heightLimits[1]);
 
-    seen_combinations = set()
-    progress = st.progress(0)
-    total = len(combos)
-    completed = 0
+    const candidatePoints = activeWinds.map(w => {
+      const h = w.height; // ft
+      const h_m = h * 0.3048; // in m
+      const t = (2 * h_m) / rateLimit; // Zeit für Auf- und Abstieg in Sekunden
+      const dx = -w.wind[0] * t; // Rückwärtssimulation (negativer Windvektor)
+      const dy = -w.wind[1] * t;
+      return {
+        easting: utmEast + dx,
+        northing: utmNorth + dy
+      };
+    });
 
-    def process_combo(h1, h2):
-        combo_results = []
-        climb_time = abs(h2 - h1) * 0.3048 / climb_rate
-        cruise_time = duration_sec - climb_time
-        for frac in np.linspace(0.1, 0.9, 9):
-            t1 = cruise_time * frac
-            t2 = cruise_time * (1 - frac)
-            p0 = np.array([0, 0])
-            p1 = p0 + wind_vectors[h1] * t1
-            p2 = p1 + wind_vectors[h2] * t2
-            area = round(0.5 * abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])) / 1e6, 3)
-            key = (min(h1, h2), max(h1, h2), area)
-            if key in seen_combinations:
-                continue
-            seen_combinations.add(key)
-            combo_results.append({
-                'h1': h1, 'h2': h2,
-                'dir1': round(interp_dirs[h1], 1), 'dir2': round(interp_dirs[h2], 1),
-                'Speed_h1': round(interp_speeds[h1], 2), 'Speed_h2': round(interp_speeds[h2], 2),
-                'T1': f"{int(t1//60)}:{int(t1%60):02d}",
-                'T2': f"{int(t2//60)}:{int(t2%60):02d}",
-                'Climb': f"{int(climb_time//60)}:{int(climb_time%60):02d}",
-                'Area_km2': round(area, 2),
-                'p0': p0, 'p1': p1, 'p2': p2
-            })
-        return combo_results
+    const avg = candidatePoints.reduce((acc, p) => ({
+      easting: acc.easting + p.easting,
+      northing: acc.northing + p.northing
+    }), { easting: 0, northing: 0 });
 
-    all_results = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(process_combo, h1, h2): (h1, h2) for h1, h2 in combos}
-        for future in concurrent.futures.as_completed(futures):
-            all_results.extend(future.result())
-            completed += 1
-            progress.progress(min(1.0, completed / total))
-    progress.empty()
-    return sorted(all_results, key=lambda x: -x['Area_km2'])[:10]
+    const center = {
+      easting: avg.easting / candidatePoints.length,
+      northing: avg.northing / candidatePoints.length
+    };
 
-if df is not None and not df.empty:
-    results = simulate_landrun_fast_unique(df, flight_time_min * 60, climb_rate)
-    if results:
-        st.subheader("🏆 Top 10 Höhenkombinationen")
-        def format_row(i, r):
-            return {
-                'Nr.': i + 1,
-                'Höhe 1': f"{int(r['h1'])} ft", 'Zeit 1': r['T1'],
-                'Richtung 1': f"{r['dir1']}°", 'Speed 1': f"{r['Speed_h1']:.2f}",
-                'Höhe 2': f"{int(r['h2'])} ft", 'Zeit 2': r['T2'],
-                'Richtung 2': f"{r['dir2']}°", 'Speed 2': f"{r['Speed_h2']:.2f}",
-                'Climb': r['Climb'], 'Fläche [km²]': f"{r['Area_km2']:.2f}"
-            }
-        df_top10 = pd.DataFrame([format_row(i, r) for i, r in enumerate(results)])
-        styled = df_top10.style.set_table_attributes('style="font-size: 13px; width: 100%;"') \
-            .apply(lambda x: ['background-color: #f2f2f2' if x.name % 2 else '' for _ in x], axis=1) \
-            .hide(axis="index")
-        st.markdown(styled.to_html(), unsafe_allow_html=True)
+    const { latitude, longitude } = utm.toLatLon(center.easting, center.northing, zoneNumber, zoneLetter);
 
-        # ------------------ 3. STARTPUNKT & KARTE ------------------
-        st.subheader("🧭 Startpunkt (UTM)")
-        utm_zone = st.selectbox("UTM-Zone", ["32N", "33N", "34N"], index=1)
-        coord_format = st.radio("Koordinatenformat", ["4/4", "5/4"], index=0)
-        short_x = st.number_input("UTM-Ostwert", value=7601, step=1)
-        short_y = st.number_input("UTM-Nordwert", value=2467, step=1)
+    setIlpResults({
+      center: { lat: latitude, lon: longitude },
+      radiusKm: rangeKm[1],
+      easting: center.easting,
+      northing: center.northing
+    });
+  }
 
-        zone_number = int(utm_zone[:-1])
-        epsg = 32600 + zone_number
-        if coord_format == "5/4":
-            utm_x = short_x * 10
-            utm_y = 5200000 + short_y * 10
-        else:
-            utm_x = 500000 + short_x * 10
-            utm_y = 5200000 + short_y * 10
+  return (
+    <div className="p-4 space-y-4">
+      <h1 className="text-xl font-bold">ILP – Individual Launch Point</h1>
 
-        transformer = Transformer.from_crs(f"epsg:{epsg}", "epsg:4326", always_xy=True)
-        lon0, lat0 = transformer.transform(utm_x, utm_y)
-        st.write("UTM X / Y:", utm_x, utm_y)
-        st.write("WGS84 Lat / Lon:", lat0, lon0)
+      <Card>
+        <CardContent className="space-y-2">
+          <Label>UTM-Zone</Label>
+          <Select value={utmZone} onValueChange={v => setUtmZone(v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="32T">32T</SelectItem>
+              <SelectItem value="33T">33T</SelectItem>
+              <SelectItem value="34T">34T</SelectItem>
+            </SelectContent>
+          </Select>
 
-        st.subheader("🗺️ Flugroute auf Karte")
-        selected_idx = st.selectbox("Variante wählen:", options=list(range(1, 11)), format_func=lambda i: f"Variante {i}")
-        selected = results[selected_idx - 1]
+          <Label>Koordinatenformat</Label>
+          <Select value={format} onValueChange={v => setFormat(v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="4/4">4/4</SelectItem>
+              <SelectItem value="5/4">5/4</SelectItem>
+            </SelectContent>
+          </Select>
 
-        def add_offset(p): return utm_x + p[0], utm_y + p[1]
-        x1, y1 = add_offset(selected['p1'])
-        x2, y2 = add_offset(selected['p2'])
-        lon1, lat1 = transformer.transform(x1, y1)
-        lon2, lat2 = transformer.transform(x2, y2)
+          <Label>UTM-Ostwert</Label>
+          <Input type="number" value={utmEast} onChange={e => setUtmEast(Number(e.target.value))} onBlur={handleUTMChange} />
 
-        m = folium.Map(location=[lat0, lon0], zoom_start=13)
-        Marker([lat0, lon0], tooltip="P1").add_to(m)
-        Marker([lat1, lon1], tooltip="P2").add_to(m)
-        Marker([lat2, lon2], tooltip="P3").add_to(m)
-        PolyLine([(lat0, lon0), (lat1, lon1), (lat2, lon2)], color="blue").add_to(m)
-        st.components.v1.html(m._repr_html_(), height=500)
+          <Label>UTM-Nordwert</Label>
+          <Input type="number" value={utmNorth} onChange={e => setUtmNorth(Number(e.target.value))} onBlur={handleUTMChange} />
+
+          <div>
+            <p className="text-sm text-gray-500">WGS 84 Koordinaten (nur intern): {latlon.lat.toFixed(6)} N, {latlon.lon.toFixed(6)} E</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-4">
+          <Label>Erlaubte Startdistanz vom Ziel (km)</Label>
+          <Slider min={1} max={50} step={1} value={rangeKm} onValueChange={setRangeKm} range />
+          <p>{rangeKm[0]} km – {rangeKm[1]} km</p>
+
+          <Label>Erlaubte Höhen (ft MSL)</Label>
+          <Slider min={0} max={10000} step={100} value={heightLimits} onValueChange={setHeightLimits} range />
+          <p>{heightLimits[0]} ft – {heightLimits[1]} ft</p>
+
+          <Label>Maximale Steig-/Sinkrate (m/s)</Label>
+          <Slider min={0} max={8} step={0.5} value={[rateLimit]} onValueChange={v => setRateLimit(v[0])} />
+          <p>{rateLimit} m/s</p>
+
+          <Button onClick={simulateILP}>ILP-Bereich berechnen</Button>
+        </CardContent>
+      </Card>
+
+      {ilpResults && (
+        <MapWithCircle lat={ilpResults.center.lat} lon={ilpResults.center.lon} radiusKm={rangeKm[1]} />
+      )}
+    </div>
+  );
+}
