@@ -1,4 +1,4 @@
-# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.7
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.7.2
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,10 +16,12 @@ if "wind_ready" not in st.session_state:
     st.session_state.wind_ready = False
 if "page" not in st.session_state:
     st.session_state.page = "START"
+if "ilp_requested" not in st.session_state:
+    st.session_state.ilp_requested = False
 
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version ILP 1.7 – 9. Juni 2025")
+    st.caption("🛠 DEBUG: Version ILP 1.7.2 – 8. Juni 2025")
 
     st.header("1) Windprofil eingeben")
     upload_col, manual_col = st.columns(2)
@@ -62,7 +64,7 @@ def startseite():
     if st.session_state.wind_ready:
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
-            st.session_state.page = "ILP"
+            st.session_state.ilp_requested = True
             st.experimental_rerun()
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
@@ -102,7 +104,7 @@ def ilp_seite():
     range_km = st.slider("Gewünschte Startdistanz (km)", 0, 15, (2, 4))
     height_min, height_max = st.slider("Erlaubte Höhen (ft MSL)", 0, 10000, (0, 3000), step=100)
     rate_limit = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.0, 8.0, 2.0, step=0.5)
-    map_style = st.selectbox("Kartenstil", ["OpenStreetMap", "Esri.WorldImagery", "Stamen Terrain", "CartoDB positron"])
+    map_style = st.selectbox("Kartenstil", ["OpenStreetMap", "Esri.WorldImagery", "CartoDB positron"])
 
     df = st.session_state.wind_df
     wind_profile = []
@@ -167,9 +169,14 @@ def ilp_seite():
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
+        st.session_state.ilp_requested = False
         st.experimental_rerun()
 
 if st.session_state.page == "START":
-    startseite()
+    if st.session_state.ilp_requested:
+        st.session_state.page = "ILP"
+        st.experimental_rerun()
+    else:
+        startseite()
 elif st.session_state.page == "ILP":
     ilp_seite()
