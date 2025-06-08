@@ -1,10 +1,13 @@
-# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.4 (8. Juni 2025)
+
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.5 (9. Juni 2025)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import utm
 import io
 from math import sqrt
+import folium
+from streamlit_folium import st_folium
 
 st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 
@@ -17,7 +20,7 @@ if "page" not in st.session_state:
 
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version ILP 1.4 – 8. Juni 2025")
+    st.caption("🛠 DEBUG: Version ILP 1.5 – 9. Juni 2025")
 
     st.header("1) Windprofil eingeben")
     upload_col, manual_col = st.columns(2)
@@ -136,14 +139,30 @@ def ilp_seite():
         ilp_lat, ilp_lon = utm.to_latlon(avg_e, avg_n, zone_number, zone_letter)
 
         st.subheader("📌 Ergebnis")
-        st.success(f"Vorgeschlagener Mittelpunkt des ILP: {avg_e:.1f} E / {avg_n:.1f} N (Zone {zone})")
-        st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f} – Radius ≈ {radius_km:.2f} km")
 
-        st.map(pd.DataFrame([
-            {"lat": lat, "lon": lon},  # Zielpunkt
-            {"lat": ilp_lat, "lon": ilp_lon}  # ILP-Mitte
-        ]))
-        st.info("Kreisfläche mit angezeigtem Radius entspricht dem berechneten Startbereich.")
+        # ILP im gewählten Koordinatenformat
+        if format == "4/4":
+            ilp_e_out = int((avg_e - 500000) / 10)
+            ilp_n_out = int((avg_n - 5200000) / 10)
+        else:
+            ilp_e_out = int(avg_e / 10)
+            ilp_n_out = int((avg_n - 5200000) / 10)
+
+        st.success(f"ILP-Mittelpunkt (Vorschlag): {ilp_e_out} / {ilp_n_out} ({format}) – Radius: {radius_km:.2f} km")
+        st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f}")
+
+        # Karte mit folium
+        m = folium.Map(location=[lat, lon], zoom_start=13)
+        folium.Marker([lat, lon], popup="Ziel", icon=folium.Icon(color="red")).add_to(m)
+        folium.Marker([ilp_lat, ilp_lon], popup="ILP-Mittelpunkt", icon=folium.Icon(color="green")).add_to(m)
+        folium.Circle(
+            location=[ilp_lat, ilp_lon],
+            radius=radius_km * 1000,
+            color="green",
+            fill=True,
+            fill_opacity=0.4
+        ).add_to(m)
+        st_data = st_folium(m, width=700, height=500)
 
     else:
         st.warning("Keine gültigen Höhen im Windprofil enthalten.")
