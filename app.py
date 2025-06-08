@@ -9,7 +9,7 @@ from math import sqrt
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v2.4
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v2.5")
 
 if "wind_df" not in st.session_state:
     st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
