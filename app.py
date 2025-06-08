@@ -40,10 +40,6 @@ def startseite():
                     st.session_state.wind_ready = True
                     st.success("Windprofil erfolgreich geladen.")
 
-else:
-                    st.error("Datei erkannt, aber nicht genügend Spalten gefunden.")
-            except Exception as e:
-                st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
     
     with manual_col:
@@ -69,8 +65,6 @@ else:
         if st.button("ILP"):
             st.session_state.page = "ILP"
 
-else:
-        st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
 def ilp_seite():
     st.title("ILP – Individual Launch Point")
@@ -91,15 +85,6 @@ def ilp_seite():
             st.error("Ungültige Eingabe.")
             return
 
-else:
-        east_part = st.text_input("Ostwert (5 Stellen)", value="57601")
-        north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
-        try:
-            easting = int(east_part) * 10
-            northing = 5200000 + int(north_part) * 10
-        except:
-            st.error("Ungültige Eingabe.")
-            return
 
     lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
     st.caption(f"WGS84 Zielkoordinate: {lat:.6f}, {lon:.6f}")
@@ -151,9 +136,6 @@ else:
             ilp_e_out = int((avg_e - 500000) / 10)
             ilp_n_out = int((avg_n - 5200000) / 10)
 
-else:
-            ilp_e_out = int(avg_e / 10)
-            ilp_n_out = int((avg_n - 5200000) / 10)
 
         st.success(f"ILP-Mittelpunkt (Vorschlag): {ilp_e_out} / {ilp_n_out} ({format}) – Radius: {radius_km:.2f} km")
         st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f}")
@@ -175,8 +157,6 @@ else:
         ).add_to(m)
         st_data = st_folium(m, width=700, height=500)
 
-else:
-        st.warning("Keine gültigen Startpunkte innerhalb der gewünschten Distanz gefunden.")
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
