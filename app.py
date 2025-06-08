@@ -1,5 +1,5 @@
 
-# HAB CompetitionBrain Kindermann-Schön – v2.4
+# HAB CompetitionBrain Kindermann-Schön – Version ILP 1.7
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,7 +9,7 @@ from math import sqrt
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v2.6")
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 
 if "wind_df" not in st.session_state:
     st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
@@ -17,11 +17,12 @@ if "wind_ready" not in st.session_state:
     st.session_state.wind_ready = False
 if "page" not in st.session_state:
     st.session_state.page = "START"
+if "trigger_ilp" not in st.session_state:
     st.session_state.trigger_ilp = False
     st.session_state.page = "START"
 
 def startseite():
-    st.title("HAB CompetitionBrain Kindermann-Schön – v2.6")
+    st.title("HAB CompetitionBrain Kindermann-Schön")
     st.caption("🛠 DEBUG: Version ILP 1.7 – 9. Juni 2025")
 
     st.header("1) Windprofil eingeben")
@@ -39,7 +40,10 @@ def startseite():
                     st.session_state.wind_df = df
                     st.session_state.wind_ready = True
                     st.success("Windprofil erfolgreich geladen.")
-
+                else:
+                    st.error("Datei erkannt, aber nicht genügend Spalten gefunden.")
+            except Exception as e:
+                st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
     
     with manual_col:
@@ -64,7 +68,9 @@ def startseite():
         st.subheader("Aufgaben (aktiv nach Winddaten):")
         if st.button("ILP"):
             st.session_state.page = "ILP"
-
+            st.experimental_rerun()
+    else:
+        st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
 def ilp_seite():
     st.title("ILP – Individual Launch Point")
@@ -84,7 +90,15 @@ def ilp_seite():
         except:
             st.error("Ungültige Eingabe.")
             return
-
+    else:
+        east_part = st.text_input("Ostwert (5 Stellen)", value="57601")
+        north_part = st.text_input("Nordwert (4 Stellen)", value="2467")
+        try:
+            easting = int(east_part) * 10
+            northing = 5200000 + int(north_part) * 10
+        except:
+            st.error("Ungültige Eingabe.")
+            return
 
     lat, lon = utm.to_latlon(easting, northing, zone_number, zone_letter)
     st.caption(f"WGS84 Zielkoordinate: {lat:.6f}, {lon:.6f}")
@@ -135,17 +149,14 @@ def ilp_seite():
         if format == "4/4":
             ilp_e_out = int((avg_e - 500000) / 10)
             ilp_n_out = int((avg_n - 5200000) / 10)
-
+        else:
+            ilp_e_out = int(avg_e / 10)
+            ilp_n_out = int((avg_n - 5200000) / 10)
 
         st.success(f"ILP-Mittelpunkt (Vorschlag): {ilp_e_out} / {ilp_n_out} ({format}) – Radius: {radius_km:.2f} km")
         st.caption(f"WGS84: {ilp_lat:.6f}, {ilp_lon:.6f}")
 
-        m = folium.Map(
-        location=[lat, lon],
-        zoom_start=13,
-        tiles="https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
-        attr="Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL."
-    )
+        m = folium.Map(location=[lat, lon], zoom_start=13, tiles=map_style)
         folium.Marker([lat, lon], popup="Ziel", icon=folium.Icon(color="red")).add_to(m)
         folium.Marker([ilp_lat, ilp_lon], popup="ILP-Mittelpunkt", icon=folium.Icon(color="green")).add_to(m)
         folium.Circle(
@@ -156,21 +167,20 @@ def ilp_seite():
             fill_opacity=0.4
         ).add_to(m)
         st_data = st_folium(m, width=700, height=500)
-
+    else:
+        st.warning("Keine gültigen Startpunkte innerhalb der gewünschten Distanz gefunden.")
 
     if st.button("🔙 Zurück zur Startseite"):
         st.session_state.page = "START"
-        
+        st.experimental_rerun()
+
 if st.session_state.page == "START":
     startseite()
 elif st.session_state.page == "ILP":
     ilp_seite()
 
 
- [deaktiviert – nur am Dateiende erlaubt]
-
-
-# ✅ Sichere Navigation (außerhalb aller Funktionen)
+# Seiten-Trigger prüfen (außerhalb von Funktionen!)
 if st.session_state.trigger_ilp:
     st.session_state.page = "ILP"
     st.session_state.trigger_ilp = False
