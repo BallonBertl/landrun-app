@@ -11,6 +11,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 
+# Session State Initialisierung
 if "wind_df" not in st.session_state:
     st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
 if "wind_ready" not in st.session_state:
@@ -18,9 +19,14 @@ if "wind_ready" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "START"
 
+# Seitenumschalter-Funktion ohne lambda
+def set_page(name):
+    st.session_state.page = name
+
+# STARTSEITE
 def startseite():
     st.title("HAB CompetitionBrain Kindermann-Schön")
-    st.caption("🛠 DEBUG: Version ILP 1.7.3 – 9. Juni 2025")
+    st.caption("🛠 DEBUG: Version ILP 1.7.3 – stabiler Seitenwechsel")
 
     st.header("1) Windprofil eingeben")
     upload_col, manual_col = st.columns(2)
@@ -49,7 +55,6 @@ def startseite():
             num_rows="dynamic",
             use_container_width=True
         )
-
         if not st.session_state.wind_df.empty:
             st.session_state.wind_ready = True
 
@@ -62,14 +67,12 @@ def startseite():
 
     if st.session_state.wind_ready:
         st.subheader("Aufgaben (aktiv nach Winddaten):")
-        st.button("ILP", on_click=lambda: set_page("ILP"))
+        if st.button("ILP"):
+            set_page("ILP")
     else:
         st.info("Bitte zuerst gültige Winddaten eingeben, um Aufgaben freizuschalten.")
 
-def set_page(page_name):
-    st.session_state.page = page_name
-    st.experimental_rerun()
-
+# ILP-SEITE
 def ilp_seite():
     st.title("ILP – Individual Launch Point")
 
@@ -168,8 +171,10 @@ def ilp_seite():
     else:
         st.warning("Keine gültigen Startpunkte innerhalb der gewünschten Distanz gefunden.")
 
-    st.button("🔙 Zurück zur Startseite", on_click=lambda: set_page("START"))
+    if st.button("🔙 Zurück zur Startseite"):
+        set_page("START")
 
+# Seitenrouting
 if st.session_state.page == "START":
     startseite()
 elif st.session_state.page == "ILP":
