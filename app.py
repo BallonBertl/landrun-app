@@ -1,131 +1,140 @@
+
+# HAB CompetitionBrain Kindermann-Schön – Top 5 Flächenberechnung
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import combinations
+from math import radians, sin, cos
+import io
 
-st.set_page_config(page_title="Dreiecksfläche – CompetitionBrain", layout="centered")
+st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön")
 
-st.title("Größtmögliche Dreiecksfläche aus zwei Höhen")
+st.title("Top 5 Flächen – Zwei-Höhen-Taktik")
+st.caption("🔧 Version 1.7 – Modifiziert mit manueller Eingabe & Dateiimport")
 
-# Eingabe: Winddaten (manuell oder Datei)
-st.subheader("Winddaten eingeben")
+# Winddaten initialisieren
+if "wind_df" not in st.session_state:
+    st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
 
-example_df = pd.DataFrame({
-    "Höhe [ft]": [1000, 2000, 3000, 4000, 5000],
-    "Richtung [°]": [90, 135, 180, 225, 270],
-    "Geschwindigkeit [km/h]": [10, 20, 30, 40, 50]
-})
+# Eingabeoptionen
+st.header("1) Winddaten eingeben")
 
-tab1, tab2 = st.tabs(["Manuelle Eingabe", "Datei-Upload"])
-with tab1:
-    wind_df = st.data_editor(example_df, num_rows="dynamic", use_container_width=True)
-with tab2:
-    uploaded_file = st.file_uploader("Winddaten als .csv oder .txt", type=["csv", "txt"])
-    if uploaded_file is not None:
+col1, col2 = st.columns(2)
+with col1:
+    uploaded_file = st.file_uploader("Winddatei hochladen (.txt oder .csv)", type=["txt", "csv"])
+    if uploaded_file:
         try:
-            wind_df = pd.read_csv(uploaded_file, sep=None, engine="python")
-            st.success("Datei erfolgreich geladen")
+            lines = uploaded_file.read().decode("utf-8").splitlines()
+            lines = [line for line in lines if not line.startswith("#") and line.strip() != ""]
+            df = pd.read_csv(io.StringIO("\n".join(lines)), sep="\t", header=None)
+            if df.shape[1] >= 3:
+                df.columns = ["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"]
+                st.session_state.wind_df = df
+                st.success("Winddaten erfolgreich geladen.")
+            else:
+                st.error("Datei enthält zu wenige Spalten.")
         except Exception as e:
             st.error(f"Fehler beim Einlesen der Datei: {e}")
 
-if wind_df.empty:
-    st.stop()
+with col2:
+    st.write("Oder manuelle Eingabe:")
+    st.session_state.wind_df = st.data_editor(
+        st.session_state.wind_df,
+        num_rows="dynamic",
+        use_container_width=True
+    )
 
-# Eingaben: Maximalzeit und Steig-/Sinkrate
-st.subheader("Berechnungsparameter")
-max_time_min = st.number_input("Maximale Gesamtzeit (Minuten)", min_value=1, value=10)
-climb_rate = st.number_input("Steig-/Sinkrate (m/s)", min_value=0.1, value=2.0, step=0.1)
+# Parameter
+st.header("2) Einstellungen")
 
-# Umrechnung der Winddaten in Vektoren
-wind_vectors = []
-for _, row in wind_df.iterrows():
+gesamtzeit_min = st.number_input("Maximale Gesamtzeit (Minuten)", min_value=1, value=5)
+steigrate = st.number_input("Maximale Steig-/Sinkrate (m/s)", min_value=0.1, value=2.0)
+
+# Berechnung starten
+if st.button("Berechnen"):
+    df = st.session_state.wind_df.copy()
     try:
-        height = float(row["Höhe [ft]"])
-        direction = float(row["Richtung [°]"])
-        speed_kmh = float(row["Geschwindigkeit [km/h]"])
+        df = df.astype({"Höhe [ft]": float, "Richtung [°]": float, "Geschwindigkeit [km/h]": float})
     except:
-        continue
-    speed_ms = speed_kmh / 3.6
-    angle_rad = np.radians(direction)
-    dx = np.sin(angle_rad) * speed_ms
-    dy = np.cos(angle_rad) * speed_ms
-    wind_vectors.append({
-        "höhe": height,
-        "geschw_kmh": speed_kmh,
-        "vector": np.array([dx, dy])
-    })
+        st.error("Bitte gültige numerische Werte eingeben.")
+        st.stop()
 
-# Berechnung möglicher Flächen mit zwei Höhenkombinationen
-results = []
-for h1, h2 in combinations(wind_vectors, 2):
-    h_diff = abs(h1["höhe"] - h2["höhe"]) * 0.3048
-    t_climb = h_diff / climb_rate
-    time_left = max_time_min * 60 - t_climb
-    if time_left <= 0:
-        continue
+    windvektoren = []
+    for _, row in df.iterrows():
+        richtung = radians(row["Richtung [°]"])
+        geschwindigkeit = row["Geschwindigkeit [km/h]"] / 3.6
+        vx = sin(richtung) * geschwindigkeit
+        vy = cos(richtung) * geschwindigkeit
+        windvektoren.append({"höhe": row["Höhe [ft]"], "vx": vx, "vy": vy, "v_kmh": row["Geschwindigkeit [km/h]"]})
 
-    for t1_frac in np.linspace(0.1, 0.9, 9):
-        t1 = time_left * t1_frac
-        t2 = time_left - t1
+    ergebnisse = []
+    gesamtzeit_sec = gesamtzeit_min * 60
 
-        p1 = h1["vector"] * t1
-        p2 = h2["vector"] * t2
+    for h1, h2 in combinations(windvektoren, 2):
+        delta_h = abs(h1["höhe"] - h2["höhe"]) * 0.3048
+        wechselzeit = delta_h / steigrate
+        verbleibend = gesamtzeit_sec - wechselzeit
+        if verbleibend <= 0:
+            continue
+        for t1_frac in np.linspace(0.1, 0.9, 9):
+            t1 = verbleibend * t1_frac
+            t2 = verbleibend - t1
+            dx = h1["vx"] * t1 + h2["vx"] * t2
+            dy = h1["vy"] * t1 + h2["vy"] * t2
+            fläche = 0.5 * abs(dx * dy)
+            ergebnisse.append({
+                "Höhe 1": h1["höhe"],
+                "v1": h1["v_kmh"],
+                "t1": t1,
+                "Höhe 2": h2["höhe"],
+                "v2": h2["v_kmh"],
+                "t2": t2,
+                "Fläche": fläche
+            })
 
-        # Dreiecksfläche berechnen (2D)
-        area = 0.5 * np.abs(np.cross(p1, p2))
+    if not ergebnisse:
+        st.warning("Keine gültigen Kombinationen gefunden.")
+        st.stop()
 
-        results.append({
-            "höhe1": h1["höhe"],
-            "geschw1": h1["geschw_kmh"],
-            "zeit1": t1,
-            "höhe2": h2["höhe"],
-            "geschw2": h2["geschw_kmh"],
-            "zeit2": t2,
-            "fläche": area,
-            "p1": p1,
-            "p2": p2
-        })
+    df_result = pd.DataFrame(ergebnisse)
+    df_top5 = df_result.sort_values(by="Fläche", ascending=False).head(5).copy()
 
-if not results:
-    st.warning("Keine gültige Kombination gefunden.")
-    st.stop()
+    def format_time(s):
+        m = int(s // 60)
+        sec = int(s % 60)
+        return f"{m:02d}:{sec:02d}"
 
-# Top 5 Ergebnisse
-sorted_results = sorted(results, key=lambda x: x["fläche"], reverse=True)[:5]
+    df_top5["Zeit 1"] = df_top5["t1"].apply(format_time)
+    df_top5["Zeit 2"] = df_top5["t2"].apply(format_time)
 
-# Auswahl zur Visualisierung
-auswahl = st.selectbox("Variante zur Visualisierung wählen (Rang)", list(range(1, len(sorted_results)+1)))
-auswahl_idx = auswahl - 1
+    df_display = df_top5[[
+        "Höhe 1", "v1", "Zeit 1", "Höhe 2", "v2", "Zeit 2", "Fläche"
+    ]].reset_index(drop=True)
+    df_display.index += 1
+    df_display.rename(columns={
+        "v1": "Geschw. 1 [km/h]",
+        "v2": "Geschw. 2 [km/h]",
+        "Fläche": "Fläche [km²]"
+    }, inplace=True)
 
-# Tabelle anzeigen
-st.subheader("Top 5 Ergebnisse")
-data = []
-for i, res in enumerate(sorted_results, 1):
-    mm1, ss1 = divmod(int(res["zeit1"]), 60)
-    mm2, ss2 = divmod(int(res["zeit2"]), 60)
-    data.append([
-        i,
-        int(res["höhe1"]), f"{res['geschw1']:.1f} km/h", f"{mm1:02}:{ss1:02}",
-        int(res["höhe2"]), f"{res['geschw2']:.1f} km/h", f"{mm2:02}:{ss2:02}",
-        f"{res['fläche']:.0f} m²"
+    st.header("3) Top 5 Ergebnisse")
+    st.dataframe(df_display.style.format(precision=2), use_container_width=True)
+
+    st.header("4) Visualisierung")
+    auswahl = st.selectbox("Variante auswählen", options=list(df_display.index), format_func=lambda x: f"Variante {x}")
+    selected = df_top5.iloc[auswahl - 1]
+
+    punkte = np.array([
+        [0, 0],
+        [selected["vx"] * selected["t1"], selected["vy"] * selected["t1"]],
+        [selected["vx"] * selected["t1"] + selected["vx"] * selected["t2"],
+         selected["vy"] * selected["t1"] + selected["vy"] * selected["t2"]]
     ])
 
-st.table(pd.DataFrame(data, columns=["Rang", "Höhe 1", "Geschw. 1", "Zeit 1", "Höhe 2", "Geschw. 2", "Zeit 2", "Fläche"]))
-
-# Visualisierung der gewählten Variante
-res = sorted_results[auswahl_idx]
-p1 = res["p1"]
-p2 = res["p2"]
-
-fig, ax = plt.subplots()
-ax.quiver(0, 0, p1[0], p1[1], angles='xy', scale_units='xy', scale=1, color='red', label="Höhe 1")
-ax.quiver(0, 0, p2[0], p2[1], angles='xy', scale_units='xy', scale=1, color='blue', label="Höhe 2")
-ax.quiver(0, 0, p1[0]+p2[0], p1[1]+p2[1], angles='xy', scale_units='xy', scale=1, color='green', label="Resultierende")
-ax.set_xlim(-5000, 5000)
-ax.set_ylim(-5000, 5000)
-ax.set_aspect('equal')
-ax.grid(True)
-ax.set_title(f"Visualisierung – Variante Rang {auswahl}")
-ax.legend()
-st.pyplot(fig)
+    fig, ax = plt.subplots()
+    ax.plot(punkte[:, 0], punkte[:, 1], marker="o")
+    ax.set_aspect("equal")
+    ax.set_title("Bewegungspfad")
+    ax.grid(True)
+    st.pyplot(fig)
