@@ -1,4 +1,4 @@
-# HAB CompetitionBrain Kindermann-Schön – Triangle Area Tool – V1.8
+# HAB CompetitionBrain Kindermann-Schön – Triangle Area Tool – V1.8 (Visualisierung nur eine Variante)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -62,13 +62,13 @@ def berechne_flaechen(wind_df, max_zeit_s, steigrate):
         dir_rad = np.radians(richtung)
         dx = np.sin(dir_rad) * speed_ms
         dy = np.cos(dir_rad) * speed_ms
-        punkte.append((hoehe, dx, dy))
-    
+        punkte.append((hoehe, dx, dy, speed_kmh))
+
     resultate = []
     for i in range(len(punkte)):
         for j in range(i+1, len(punkte)):
-            h1, dx1, dy1 = punkte[i]
-            h2, dx2, dy2 = punkte[j]
+            h1, dx1, dy1, v1 = punkte[i]
+            h2, dx2, dy2, v2 = punkte[j]
             dh = abs(h2 - h1) * 0.3048  # ft to m
             zeitwechsel = dh / steigrate
             verbleibend = max_zeit_s - zeitwechsel
@@ -80,33 +80,37 @@ def berechne_flaechen(wind_df, max_zeit_s, steigrate):
             flaeche = 0.5 * np.abs(p1[0]*p2[1] - p2[0]*p1[1])
             resultate.append({
                 "Höhe 1 [ft]": int(h1),
+                "Geschw. 1 [km/h]": v1,
                 "Zeit 1": t1,
                 "Höhe 2 [ft]": int(h2),
+                "Geschw. 2 [km/h]": v2,
                 "Zeit 2": t2,
                 "Fläche [km²]": flaeche / 1e6,
                 "Punkte": [(0, 0), tuple(p1), tuple(p1 + p2)]
             })
 
     resultate.sort(key=lambda x: x["Fläche [km²]"], reverse=True)
-    return resultate[:1]  # NUR beste Variante
+    return resultate[:5]
 
 if not st.session_state.wind_df.empty:
     max_zeit_s = max_zeit_min * 60
-    top1 = berechne_flaechen(st.session_state.wind_df, max_zeit_s, steigrate)
-    if top1:
-        st.subheader("Beste Variante")
-        for idx, eintrag in enumerate(top1, 1):
+    top5 = berechne_flaechen(st.session_state.wind_df, max_zeit_s, steigrate)
+    if top5:
+        st.subheader("Top 5 Flächen")
+        for idx, eintrag in enumerate(top5, 1):
             z1 = f"{int(eintrag['Zeit 1']//60):02d}:{int(eintrag['Zeit 1']%60):02d}"
             z2 = f"{int(eintrag['Zeit 2']//60):02d}:{int(eintrag['Zeit 2']%60):02d}"
-            st.markdown(f"**{idx}.** {eintrag['Höhe 1 [ft]']} ft ({z1}) → {eintrag['Höhe 2 [ft]']} ft ({z2}) → Fläche: {eintrag['Fläche [km²]']:.2f} km²")
+            st.markdown(f"**{idx}.** {eintrag['Höhe 1 [ft]']} ft ({eintrag['Geschw. 1 [km/h]']:.1f} km/h, {z1}) → {eintrag['Höhe 2 [ft]']} ft ({eintrag['Geschw. 2 [km/h]']:.1f} km/h, {z2}) → Fläche: {eintrag['Fläche [km²]']:.2f} km²")
 
         st.subheader("Visualisierung")
+        index = st.selectbox("Variante auswählen", options=list(range(1, len(top5)+1)), format_func=lambda x: f"Variante {x}")
+        eintrag = top5[index - 1]
+        p = np.array(eintrag["Punkte"])
         fig, ax = plt.subplots()
-        p = np.array(top1[0]["Punkte"])
         ax.plot(p[:,0], p[:,1], marker="o")
         ax.set_xlabel("X (m)")
         ax.set_ylabel("Y (m)")
-        ax.set_title("Größte Fläche (2 Schenkel)")
+        ax.set_title(f"Visualisierung – Variante {index}")
         ax.grid(True)
         ax.axis("equal")
         st.pyplot(fig)
