@@ -1,96 +1,117 @@
-# HAB CompetitionBrain Kindermann-Schön – v1.7.1 (Top-5 Dreiecksflächen)
+# HAB CompetitionBrain Kindermann-Schön – Triangle Area Tool – V1.8
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
-from itertools import combinations
 import io
 
-st.set_page_config(page_title="HAB CompetitionBrain Kindermann-Schön – v1.7.1")
-st.title("🏁 Größte Dreiecksflächen – Windvektoren")
-st.caption("Version 1.7.1 – Nur Flächenberechnung, keine Koordinaten")
+st.set_page_config(page_title="Triangle Area Tool – V1.8")
 
-# Eingabe: Datei oder manuell
-st.header("1) Winddaten eingeben")
+if "wind_df" not in st.session_state:
+    st.session_state.wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
+
+st.title("Größtmögliche Fläche mit zwei Höhen – V1.8")
+
+# Eingabe: Windprofil
+st.header("1) Windprofil eingeben")
 upload_col, manual_col = st.columns(2)
 
-def read_wind_file(uploaded_file):
-    try:
-        lines = uploaded_file.read().decode("utf-8").splitlines()
-        lines = [line for line in lines if not line.startswith("#") and line.strip() != ""]
-        df = pd.read_csv(io.StringIO("\n".join(lines)), sep="\t", header=None)
-        df.columns = ["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"]
-        return df
-    except Exception as e:
-        st.error(f"Fehler beim Einlesen der Datei: {e}")
-        return pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
-
 with upload_col:
-    uploaded_file = st.file_uploader("Winddatei (.txt/.csv)", type=["txt", "csv"])
-    if uploaded_file:
-        wind_df = read_wind_file(uploaded_file)
-    else:
-        wind_df = pd.DataFrame(columns=["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"])
+    uploaded_file = st.file_uploader("Winddatei hochladen (.txt oder .csv)", type=["txt", "csv"])
+    if uploaded_file is not None:
+        try:
+            lines = uploaded_file.read().decode("utf-8").splitlines()
+            data_lines = [line for line in lines if not line.startswith("#") and line.strip() != ""]
+            df = pd.read_csv(io.StringIO("\n".join(data_lines)), sep="\t", header=None)
+            if df.shape[1] >= 3:
+                df.columns = ["Höhe [ft]", "Richtung [°]", "Geschwindigkeit [km/h]"]
+                st.session_state.wind_df = df
+                st.success("Windprofil erfolgreich geladen.")
+            else:
+                st.error("Datei erkannt, aber nicht genügend Spalten gefunden.")
+        except Exception as e:
+            st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
 with manual_col:
-    st.write("Oder manuelle Eingabe der Winddaten:")
-    wind_df = st.data_editor(wind_df, num_rows="dynamic", use_container_width=True)
+    st.write("Oder manuelle Eingabe:")
+    st.session_state.wind_df = st.data_editor(
+        st.session_state.wind_df,
+        num_rows="dynamic",
+        use_container_width=True
+    )
 
-if wind_df.empty:
-    st.warning("Bitte Winddaten eingeben, um Berechnung zu starten.")
-    st.stop()
+# Eingaben: Max Zeit und Steig-/Sinkrate
+st.header("2) Einstellungen")
+max_zeit_min = st.number_input("Maximale Gesamtzeit (min)", min_value=1, max_value=60, value=10)
+steigrate = st.number_input("Maximale Steig-/Sinkrate (m/s)", min_value=0.1, max_value=10.0, value=2.0, step=0.1)
 
-# Umrechnung in Vektoren
-punkte = []
-for _, row in wind_df.iterrows():
-    try:
-        richtung = float(row["Richtung [°]"])
-        geschw = float(row["Geschwindigkeit [km/h]"]) / 3.6  # in m/s
-        winkel_rad = np.radians(richtung)
-        x = np.sin(winkel_rad) * geschw
-        y = np.cos(winkel_rad) * geschw
-        punkte.append([x, y])
-    except:
-        continue
+# Berechnung
+st.header("3) Größtmögliche Fläche berechnen")
 
-punkte = np.array(punkte)
-if len(punkte) < 3:
-    st.warning("Mindestens 3 gültige Winddaten notwendig.")
-    st.stop()
+def berechne_flaechen(wind_df, max_zeit_s, steigrate):
+    punkte = []
+    for _, row in wind_df.iterrows():
+        try:
+            hoehe = float(row["Höhe [ft]"])
+            richtung = float(row["Richtung [°]"])
+            speed_kmh = float(row["Geschwindigkeit [km/h]"])
+        except:
+            continue
+        speed_ms = speed_kmh / 3.6
+        dir_rad = np.radians(richtung)
+        dx = np.sin(dir_rad) * speed_ms
+        dy = np.cos(dir_rad) * speed_ms
+        punkte.append((hoehe, dx, dy))
+    
+    resultate = []
+    for i in range(len(punkte)):
+        for j in range(i+1, len(punkte)):
+            h1, dx1, dy1 = punkte[i]
+            h2, dx2, dy2 = punkte[j]
+            dh = abs(h2 - h1) * 0.3048  # ft to m
+            zeitwechsel = dh / steigrate
+            verbleibend = max_zeit_s - zeitwechsel
+            if verbleibend <= 0:
+                continue
+            t1 = t2 = verbleibend / 2
+            p1 = np.array([dx1 * t1, dy1 * t1])
+            p2 = np.array([dx2 * t2, dy2 * t2])
+            flaeche = 0.5 * np.abs(p1[0]*p2[1] - p2[0]*p1[1])
+            resultate.append({
+                "Höhe 1 [ft]": int(h1),
+                "Zeit 1": t1,
+                "Höhe 2 [ft]": int(h2),
+                "Zeit 2": t2,
+                "Fläche [km²]": flaeche / 1e6,
+                "Punkte": [(0, 0), tuple(p1), tuple(p1 + p2)]
+            })
 
-# Größte Dreiecksflächen berechnen
-st.header("2) Größte Flächenkombinationen")
+    resultate.sort(key=lambda x: x["Fläche [km²]"], reverse=True)
+    return resultate[:5]
 
-def dreiecksfläche(a, b, c):
-    return 0.5 * abs((a[0]*(b[1]-c[1]) + b[0]*(c[1]-a[1]) + c[0]*(a[1]-b[1])))
+if not st.session_state.wind_df.empty:
+    max_zeit_s = max_zeit_min * 60
+    top5 = berechne_flaechen(st.session_state.wind_df, max_zeit_s, steigrate)
+    if top5:
+        st.subheader("Top 5 Flächen")
+        for idx, eintrag in enumerate(top5, 1):
+            z1 = f"{int(eintrag['Zeit 1']//60):02d}:{int(eintrag['Zeit 1']%60):02d}"
+            z2 = f"{int(eintrag['Zeit 2']//60):02d}:{int(eintrag['Zeit 2']%60):02d}"
+            st.markdown(f"**{idx}.** {eintrag['Höhe 1 [ft]']} ft ({z1}) → {eintrag['Höhe 2 [ft]']} ft ({z2}) → Fläche: {eintrag['Fläche [km²]']:.2f} km²")
 
-kombis = list(combinations(punkte, 3))
-flächen = [(dreiecksfläche(a, b, c), [a, b, c]) for a, b, c in kombis]
-flächen.sort(reverse=True, key=lambda x: x[0])
-
-st.subheader("Top 5 Flächenkombinationen (in m²)")
-for i, (area, triangle) in enumerate(flächen[:5], 1):
-    st.write(f"**#{i}** – Fläche: {area:.2f} m²")
-
-# Visualisierung
-st.header("3) Darstellung der größten Fläche")
-beste_dreieck = flächen[0][1]
-fig, ax = plt.subplots()
-
-# Alle Vektoren als Pfeile vom Ursprung
-for p in punkte:
-    ax.quiver(0, 0, p[0], p[1], angles='xy', scale_units='xy', scale=1, color='lightgray', alpha=0.5)
-
-# Bestes Dreieck zeichnen
-dreieck_array = np.array(beste_dreieck + [beste_dreieck[0]])
-ax.plot(dreieck_array[:,0], dreieck_array[:,1], 'b-o', label="Größtes Dreieck")
-ax.fill(dreieck_array[:,0], dreieck_array[:,1], 'lightblue', alpha=0.5)
-
-ax.set_aspect('equal')
-ax.grid(True)
-ax.set_title("Darstellung des größten Dreiecks")
-ax.set_xlabel("x (m/s)")
-ax.set_ylabel("y (m/s)")
-ax.legend()
-st.pyplot(fig)
+        st.subheader("Visualisierung")
+        fig, ax = plt.subplots()
+        for eintrag in top5:
+            p = np.array(eintrag["Punkte"])
+            ax.plot(p[:,0], p[:,1], marker="o")
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_title("Top 5 Flächen (2 Schenkel)")
+        ax.grid(True)
+        ax.axis("equal")
+        st.pyplot(fig)
+    else:
+        st.warning("Keine gültige Kombination gefunden.")
+else:
+    st.info("Bitte zuerst Winddaten eingeben.")
