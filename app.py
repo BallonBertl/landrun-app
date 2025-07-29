@@ -1,19 +1,20 @@
+# HAB CompetitionBrain Kindermann-Schön – Version V1.7 – Flächenberechnung
 
-# HAB CompetitionBrain – Dreiecksfläche v1.7 (vereinfacht)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-from scipy.spatial import ConvexHull
+from itertools import combinations
 import matplotlib.pyplot as plt
+from scipy.spatial import ConvexHull
 
-st.set_page_config(page_title="Dreiecksfläche – v1.7 einfach")
+st.set_page_config(page_title="HAB CompetitionBrain – Flächenanalyse V1.7")
 
-st.title("📐 Größtmögliche Dreiecksfläche – Version 1.7 einfach")
-st.caption("Berechnet aus Winddaten mögliche Flächen für strategische Ballonstarts.")
+st.title("📐 Größtmögliche Dreiecksfläche aus Winddaten")
+st.caption("Version V1.7 – Ursprungsversion")
 
-# Winddaten laden oder manuell eingeben
-st.header("1) Windprofil eingeben")
+st.header("1) Winddaten eingeben")
+
 upload_col, manual_col = st.columns(2)
 
 if "wind_df" not in st.session_state:
@@ -31,7 +32,7 @@ with upload_col:
                 st.session_state.wind_df = df
                 st.success("Windprofil erfolgreich geladen.")
             else:
-                st.error("Nicht genügend Spalten gefunden.")
+                st.error("Datei erkannt, aber nicht genügend Spalten gefunden.")
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
@@ -43,69 +44,58 @@ with manual_col:
         use_container_width=True
     )
 
-df = st.session_state.wind_df
-if df.empty:
-    st.warning("Bitte Winddaten hochladen oder manuell eingeben.")
+if st.session_state.wind_df.empty:
     st.stop()
 
-# Startpunkt (0/0) und Einstellungen
-st.header("2) Einstellungen")
-min_height, max_height = st.slider("Höhenbereich (ft)", 0, 10000, (0, 3000), step=100)
-rate_limit = st.slider("Maximale Steig-/Sinkrate (m/s)", 0.5, 8.0, 2.0, step=0.5)
+df = st.session_state.wind_df.copy()
 
-# Konvertierung & Berechnung
-st.header("3) Berechnung")
+st.header("2) Berechnung der maximalen Fläche")
 
-wind_vectors = []
+# Umrechnung der Winddaten in Vektoren
+def wind_to_vector(deg, kmh):
+    rad = np.radians(deg)
+    ms = kmh / 3.6
+    return np.array([np.sin(rad) * ms, np.cos(rad) * ms])
+
+vectors = []
+heights = []
+
 for _, row in df.iterrows():
     try:
-        h_ft = float(row["Höhe [ft]"])
-        if not (min_height <= h_ft <= max_height):
-            continue
-        deg = float(row["Richtung [°]"])
-        spd_kmh = float(row["Geschwindigkeit [km/h]"])
-        spd_ms = spd_kmh / 3.6
-        dir_rad = np.radians(deg)
-        vx = np.sin(dir_rad) * spd_ms
-        vy = np.cos(dir_rad) * spd_ms
-        t = (2 * h_ft * 0.3048) / rate_limit
-        dx = vx * t
-        dy = vy * t
-        wind_vectors.append((dx, dy))
+        v = wind_to_vector(float(row["Richtung [°]"]), float(row["Geschwindigkeit [km/h]"]))
+        vectors.append(v)
+        heights.append(float(row["Höhe [ft]"]))
     except:
         continue
 
-if len(wind_vectors) < 3:
-    st.error("Nicht genügend gültige Windvektoren zur Flächenberechnung.")
-    st.stop()
+points = np.array(vectors)
 
-# Alle möglichen Dreiecke und Flächen berechnen
-punkte = np.array(wind_vectors)
-kombis = []
-n = len(punkte)
-for i in range(n):
-    for j in range(i + 1, n):
-        for k in range(j + 1, n):
-            a, b, c = punkte[i], punkte[j], punkte[k]
-            area = 0.5 * abs(np.cross(b - a, c - a))
-            kombis.append({"punkte": (a, b, c), "fläche": area})
+def triangle_area(p1, p2, p3):
+    return 0.5 * abs(np.cross(p2 - p1, p3 - p1))
 
-top5 = sorted(kombis, key=lambda x: x["fläche"], reverse=True)[:5]
+top_areas = []
 
-st.subheader("Top 5 Flächenkombinationen")
-for i, combo in enumerate(top5, 1):
-    a, b, c = combo["punkte"]
-    st.markdown(f"**#{i}:** Fläche: {combo['fläche']:.2f} km²")
+for i, j, k in combinations(range(len(points)), 3):
+    a = triangle_area(points[i], points[j], points[k])
+    top_areas.append((a, i, j, k))
 
-# Visualisierung
-st.subheader("Visualisierung größter Fläche")
-fig, ax = plt.subplots()
-a, b, c = top5[0]["punkte"]
-triangle = np.array([a, b, c, a])
-ax.plot(triangle[:, 0], triangle[:, 1], 'bo-')
-ax.set_title("Größte Dreiecksfläche")
-ax.set_xlabel("Entfernung X [m]")
-ax.set_ylabel("Entfernung Y [m]")
-ax.grid(True)
-ax.axis("equal")
-st.pyplot(fig)
+top_areas.sort(reverse=True, key=lambda x: x[0])
+top_5 = top_areas[:5]
+
+st.subheader("Top 5 Flächenlösungen")
+
+for idx, (area, i, j, k) in enumerate(top_5):
+    st.markdown(f"**#{idx+1}** – Fläche: {area:.2f} (m²/s²) – Höhen: {heights[i]} / {heights[j]} / {heights[k]} ft")
+
+st.subheader("Darstellung größter Fläche")
+
+if top_5:
+    _, i, j, k = top_5[0]
+    fig, ax = plt.subplots()
+    ax.quiver(0, 0, points[:,0], points[:,1], angles='xy', scale_units='xy', scale=1, color='lightgray')
+    triangle = np.array([points[i], points[j], points[k], points[i]])
+    ax.plot(triangle[:,0], triangle[:,1], 'r-o', label='Größte Fläche')
+    ax.set_aspect('equal')
+    ax.set_title("Windvektoren & größte Dreiecksfläche")
+    ax.grid(True)
+    st.pyplot(fig)
