@@ -1,8 +1,7 @@
 streamlit
 pandas
 numpy
-matplotlib
-folium
-pyproj
+scipy
 utm
+folium
 streamlit-folium
