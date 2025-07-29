@@ -88,26 +88,25 @@ def berechne_flaechen(wind_df, max_zeit_s, steigrate):
             })
 
     resultate.sort(key=lambda x: x["Fläche [km²]"], reverse=True)
-    return resultate[:5]
+    return resultate[:1]  # NUR beste Variante
 
 if not st.session_state.wind_df.empty:
     max_zeit_s = max_zeit_min * 60
-    top5 = berechne_flaechen(st.session_state.wind_df, max_zeit_s, steigrate)
-    if top5:
-        st.subheader("Top 5 Flächen")
-        for idx, eintrag in enumerate(top5, 1):
+    top1 = berechne_flaechen(st.session_state.wind_df, max_zeit_s, steigrate)
+    if top1:
+        st.subheader("Beste Variante")
+        for idx, eintrag in enumerate(top1, 1):
             z1 = f"{int(eintrag['Zeit 1']//60):02d}:{int(eintrag['Zeit 1']%60):02d}"
             z2 = f"{int(eintrag['Zeit 2']//60):02d}:{int(eintrag['Zeit 2']%60):02d}"
             st.markdown(f"**{idx}.** {eintrag['Höhe 1 [ft]']} ft ({z1}) → {eintrag['Höhe 2 [ft]']} ft ({z2}) → Fläche: {eintrag['Fläche [km²]']:.2f} km²")
 
         st.subheader("Visualisierung")
         fig, ax = plt.subplots()
-        for eintrag in top5:
-            p = np.array(eintrag["Punkte"])
-            ax.plot(p[:,0], p[:,1], marker="o")
+        p = np.array(top1[0]["Punkte"])
+        ax.plot(p[:,0], p[:,1], marker="o")
         ax.set_xlabel("X (m)")
         ax.set_ylabel("Y (m)")
-        ax.set_title("Top 5 Flächen (2 Schenkel)")
+        ax.set_title("Größte Fläche (2 Schenkel)")
         ax.grid(True)
         ax.axis("equal")
         st.pyplot(fig)
